@@ -9,3 +9,5 @@ build/
 variant_counts.csv
 figure2_variant_summary.png
 figure2_variant_summary.svg
+figure2_variant_summary.py
+exome.sh
