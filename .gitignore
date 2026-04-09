@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.checkpoints/
+*.log
+variant_counts.csv
+figure2_variant_summary.png
+figure2_variant_summary.svg

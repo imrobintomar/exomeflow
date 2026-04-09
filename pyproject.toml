@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exomeflow"
+version = "1.0.2"
+description = "Production-quality Whole Exome Sequencing analysis pipeline"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Robin Tomar", email = "itsrobintomar@gmail.com" }
+]
+keywords = ["bioinformatics", "WES", "NGS", "genomics", "exome", "variant-calling"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "pandas>=2.0.0",
+]
+
+[project.scripts]
+exomeflow = "exomeflow.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/imrobintomar/exomeflow"
+Repository = "https://github.com/imrobintomar/exomeflow.git"
+"Bug Tracker" = "https://github.com/imrobintomar/exomeflow/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["exomeflow*"]
+
+[tool.setuptools.package-data]
+exomeflow = ["py.typed"]

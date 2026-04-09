@@ -1,0 +1,35 @@
+# ============================================================
+# ExomeFlow — Requirements
+# ============================================================
+
+# ------------------------------------------------------------
+# SYSTEM TOOLS (must be installed separately and on PATH)
+# Install via conda, apt, or from source — NOT via pip
+# ------------------------------------------------------------
+# bwa >= 0.7.17
+#   conda install -c bioconda bwa
+#
+# samtools >= 1.13
+#   conda install -c bioconda samtools
+#
+# gatk >= 4.6.0
+#   https://github.com/broadinstitute/gatk/releases
+#   export PATH="/path/to/gatk-4.6.x.x:$PATH"
+#
+# fastp >= 0.20.1
+#   conda install -c bioconda fastp
+#
+# perl >= 5.34
+#   conda install perl  OR  sudo apt install perl
+#
+# annovar (table_annovar.pl)
+#   https://annovar.openbioinformatics.org
+#   Pass path via --annovar-bin CLI argument
+
+# ------------------------------------------------------------
+# PYTHON DEPENDENCIES  (installed automatically via pip)
+# ------------------------------------------------------------
+typer>=0.12.0
+rich>=13.0.0
+pandas>=2.0.0
+matplotlib>=3.7.0
