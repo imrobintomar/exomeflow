@@ -1,6 +1,4 @@
-<div align="center">
-
-<img src="https://raw.githubusercontent.com/imrobintomar/exomeflow/main/Logo.png" alt="ExomeFlow Logo" width="420"/>
+![ExomeFlow Logo](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/Logo.png)
 
 # ExomeFlow: A Production-Quality Python WES Analysis Toolkit
 
@@ -312,6 +310,5 @@ If you use ExomeFlow in your research, please cite:
 
 ---
 
-<div align="center">
-<sub>Built with ❤️ for the bioinformatics community · Robin Tomar, AIIMS New Delhi</sub>
-</div>
+---
+*Built for the bioinformatics community · Robin Tomar, AIIMS New Delhi*
