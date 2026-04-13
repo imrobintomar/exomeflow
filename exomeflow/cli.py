@@ -15,11 +15,53 @@ from rich.console import Console
 
 from exomeflow import __version__
 
+_HELP = """
+[bold cyan]ExomeFlow[/bold cyan] — Production Whole Exome Sequencing pipeline.
+
+[bold]Commands[/bold]
+  [green]setup[/green]   Install dependencies, download hg38 references and ANNOVAR databases
+  [green]run[/green]     Execute the full WES analysis pipeline on paired FASTQ files
+
+[bold]Quick start[/bold]
+
+  [dim]# Step 1 — Install all tools and download reference data[/dim]
+  exomeflow setup --refs-dir /data/refs --annovar-bin /opt/annovar --annovar-db /opt/annovar/humandb
+
+  [dim]# Step 2 — Run the pipeline[/dim]
+  exomeflow run --input-dir fastq/ --reference /data/refs/hg38.fa \\
+    --dbsnp /data/refs/dbsnp.vcf.gz --mills /data/refs/mills.vcf.gz \\
+    --known-indels /data/refs/known_indels.vcf.gz \\
+    --annovar-bin /opt/annovar --annovar-db /opt/annovar/humandb --output results/
+
+[bold]Required system tools[/bold] (installed automatically by [green]exomeflow setup[/green])
+
+  fastp         Quality control & adapter trimming
+  bwa           Reference genome alignment (BWA-MEM)
+  samtools      BAM sorting, indexing, flagstat
+  gatk          Variant calling, BQSR, filtering (GATK 4)
+  perl          Required to run ANNOVAR
+  annovar       Variant annotation (install manually from annovar.openbioinformatics.org)
+
+[bold]Manual tool installation (if needed)[/bold]
+
+  [yellow]fastp[/yellow]        conda install -c bioconda fastp
+  [yellow]bwa[/yellow]          conda install -c bioconda bwa
+  [yellow]samtools[/yellow]     conda install -c bioconda samtools
+  [yellow]gatk[/yellow]         conda install -c bioconda gatk4
+  [yellow]perl[/yellow]         sudo apt install perl  [dim](or conda install perl)[/dim]
+  [yellow]annovar[/yellow]      Download from annovar.openbioinformatics.org (requires registration)
+
+[bold]Python dependencies[/bold] (auto-installed via pip)
+
+  typer, rich, pandas
+"""
+
 app = typer.Typer(
     name="exomeflow",
-    help="Whole Exome Sequencing analysis pipeline.",
+    help=_HELP,
     add_completion=False,
     rich_markup_mode="rich",
+    no_args_is_help=True,
 )
 
 console = Console()
@@ -41,7 +83,7 @@ def _main(
         help="Print version and exit.",
     ),
 ) -> None:
-    """ExomeFlow — production WES pipeline."""
+    pass
 
 
 @app.command("run")
