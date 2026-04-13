@@ -1,6 +1,8 @@
-![ExomeFlow Logo](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/Logo.png)
+![ExomeFlow Cover](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/ExomeFlow_Cover.png)
 
 # ExomeFlow: A Production-Quality Python WES Analysis Toolkit
+
+![ExomeFlow Icon](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/ExomeFlow_Icon.png)
 
 | | |
 |---|---|
