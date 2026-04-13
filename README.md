@@ -8,8 +8,6 @@
 | **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![PyPI Downloads](https://img.shields.io/pypi/dm/exomeflow)](https://pypi.org/project/exomeflow/) |
 | **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/imrobintomar/exomeflow/blob/main/LICENSE) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo-blue)](https://github.com/imrobintomar/exomeflow) |
 
-</div>
-
 ---
 
 ## What is it?
@@ -34,6 +32,7 @@ checkpointing for resumable runs, structured logging, and parallel execution out
 - [System Requirements](#system-requirements)
 - [Python Dependencies](#python-dependencies)
 - [Quick Start](#quick-start)
+- [Commands](#commands)
 - [Reference Files](#reference-files)
 - [Input Convention](#input-convention)
 - [Output Files](#output-files)
@@ -48,6 +47,8 @@ checkpointing for resumable runs, structured logging, and parallel execution out
 
 Here are the things ExomeFlow does well:
 
+- **One-command setup** — `exomeflow setup` installs all system tools, downloads hg38 reference
+  files (~13 GB) and ANNOVAR databases (~100 GB) automatically
 - **Automatic sample detection** — scans an input directory and detects all paired-end
   samples from FASTQ filenames; no manifest file required
 - **Complete GATK best-practice workflow** — fastp QC → BWA MEM alignment → coordinate
@@ -159,14 +160,13 @@ They must be installed separately and available on your `PATH`.
 |------|----------------|---------|
 | [BWA](https://github.com/lh3/bwa) | ≥ 0.7.17 | `conda install -c bioconda bwa` |
 | [SAMtools](http://www.htslib.org) | ≥ 1.13 | `conda install -c bioconda samtools` |
-| [GATK](https://github.com/broadinstitute/gatk/releases) | ≥ 4.6.0 | Download jar + add to `PATH` |
+| [GATK](https://github.com/broadinstitute/gatk/releases) | ≥ 4.6.0 | `conda install -c bioconda gatk4` |
 | [fastp](https://github.com/OpenGENOMICS/fastp) | ≥ 0.20.1 | `conda install -c bioconda fastp` |
 | [Perl](https://www.perl.org) | ≥ 5.26 | `conda install perl` |
-| [ANNOVAR](https://annovar.openbioinformatics.org) | latest | Register + download |
+| [ANNOVAR](https://annovar.openbioinformatics.org) | latest | Register + download from website |
 
-> Run `python check_requirements.py` to verify all tools are installed
-> and meet minimum version requirements before starting the pipeline.
-> This check also runs **automatically** as Step 0 of every pipeline run.
+> **Tip:** Run `exomeflow setup` after installation to automatically verify tools,
+> download hg38 reference files, and populate ANNOVAR databases in one step.
 
 ---
 
@@ -175,25 +175,33 @@ They must be installed separately and available on your `PATH`.
 - **[typer](https://typer.tiangolo.com/)** — Builds the CLI interface
 - **[rich](https://rich.readthedocs.io/)** — Provides coloured terminal output and structured logging
 - **[pandas](https://pandas.pydata.org/)** — Data handling for variant count summaries
-- **[matplotlib](https://matplotlib.org/)** — Variant summary figure generation
 
-See [requirements.txt](requirements.txt) for exact minimum versions.
+All Python dependencies are installed automatically with `pip install exomeflow`.
 
 ---
 
 ## Quick Start
 
-### 1. Install
+### 1. Install ExomeFlow
 
 ```bash
 pip install exomeflow
 ```
 
-### 2. Check requirements
+### 2. Set up all dependencies and reference data
 
 ```bash
-python check_requirements.py
+exomeflow setup \
+  --refs-dir   /data/references/hg38 \
+  --annovar-bin /opt/annovar \
+  --annovar-db  /opt/annovar/humandb
 ```
+
+This command will:
+- Install missing Python packages
+- Install system tools via conda (fastp, bwa, samtools, gatk4, perl)
+- Download hg38 reference files (~13 GB) using gsutil or wget
+- Download ANNOVAR annotation databases (~100 GB)
 
 ### 3. Prepare FASTQ files
 
@@ -211,34 +219,76 @@ fastq/
 exomeflow run \
   --input-dir    fastq/ \
   --output       results/ \
-  --reference    refs/hg38.fa \
-  --dbsnp        refs/dbsnp.vcf.gz \
-  --mills        refs/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
-  --known-indels refs/Homo_sapiens_assembly38.known_indels.vcf.gz \
+  --reference    /data/references/hg38/hg38.fa \
+  --dbsnp        /data/references/hg38/dbsnp.vcf.gz \
+  --mills        /data/references/hg38/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+  --known-indels /data/references/hg38/Homo_sapiens_assembly38.known_indels.vcf.gz \
   --intervals    refs/Illumina_Exome_TargetedRegions_v1.2.hg38.bed \
-  --annovar-bin  /path/to/annovar \
-  --annovar-db   /path/to/annovar/humandb \
+  --annovar-bin  /opt/annovar \
+  --annovar-db   /opt/annovar/humandb \
   --threads      32 \
   --max-workers  2
 ```
 
 ---
 
+## Commands
+
+### `exomeflow setup` — Install dependencies and download reference data
+
+```
+exomeflow setup --refs-dir PATH --annovar-bin PATH --annovar-db PATH
+```
+
+| Option | Description |
+|--------|-------------|
+| `--refs-dir` | Directory to download hg38 reference files into |
+| `--annovar-bin` | ANNOVAR installation directory (must contain `annotate_variation.pl`) |
+| `--annovar-db` | ANNOVAR humandb directory for database downloads |
+
+### `exomeflow run` — Execute the WES pipeline
+
+```
+exomeflow run [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--input-dir`, `-i` | required | Directory containing paired FASTQ files |
+| `--output`, `-o` | `results/` | Root output directory |
+| `--reference`, `-r` | required | BWA-indexed reference FASTA (hg38.fa) |
+| `--dbsnp` | required | dbSNP VCF (bgzipped + tabix-indexed) |
+| `--mills` | required | Mills and 1000G gold standard indels VCF |
+| `--known-indels` | required | Known indels VCF for BQSR |
+| `--intervals` | _(optional)_ | Exome capture BED file |
+| `--interval-padding` | `100` | Base-pair padding around each target interval |
+| `--annovar-bin` | required | Directory containing `table_annovar.pl` |
+| `--annovar-db` | required | ANNOVAR humandb directory |
+| `--threads`, `-t` | `24` | Threads for BWA MEM and GATK HaplotypeCaller |
+| `--fastp-threads` | `8` | Threads for fastp |
+| `--annovar-threads` | `24` | Threads for ANNOVAR |
+| `--max-workers` | `1` | Number of samples to process in parallel |
+| `--java-opts` | `-Xmx80g` | JVM options passed via JAVA_OPTS |
+
+---
+
 ## Reference Files
 
-| File | Description |
-|------|-------------|
-| `hg38.fa` | BWA-indexed reference genome (UCSC / GATK resource bundle) |
-| `dbsnp.vcf.gz` | dbSNP VCF — bgzipped + tabix-indexed |
-| `Mills_and_1000G_gold_standard.indels.hg38.vcf.gz` | Mills gold standard indels |
-| `Homo_sapiens_assembly38.known_indels.vcf.gz` | Known indels for BQSR |
-| Exome capture BED | From your capture kit vendor (Illumina / Twist / Agilent) |
-| ANNOVAR humandb | hg38 annotation databases |
+| File | Source | Size |
+|------|--------|------|
+| `hg38.fa` + BWA index | UCSC / GATK resource bundle | ~10 GB |
+| `dbsnp.vcf.gz` | GATK resource bundle | ~10 GB |
+| `Mills_and_1000G_gold_standard.indels.hg38.vcf.gz` | GATK resource bundle | ~200 MB |
+| `Homo_sapiens_assembly38.known_indels.vcf.gz` | GATK resource bundle | ~100 MB |
+| Exome capture BED | Your sequencing kit vendor | varies |
+| ANNOVAR humandb (8 databases) | ANNOVAR download server | ~100 GB |
 
-Download the GATK resource bundle:
+`exomeflow setup` downloads all GATK resource bundle files automatically.
+
+Manual download:
 
 ```bash
-gsutil -m cp -r gs://gatk-best-practices/somatic-hg38/ .
+gsutil -m cp -r gs://genomics-public-data/resources/broad/hg38/v0/ /data/refs/
 ```
 
 ---
@@ -310,5 +360,4 @@ If you use ExomeFlow in your research, please cite:
 
 ---
 
----
 *Built for the bioinformatics community · Robin Tomar, AIIMS New Delhi*
