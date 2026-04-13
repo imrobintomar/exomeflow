@@ -356,7 +356,7 @@ def check_all_requirements(cfg: "Config") -> None:
                 encoding="utf-8", errors="replace", timeout=10,
             )
             output = result.stdout + result.stderr
-            found  = _parse_version(output)
+            found = _parse_version(output)
             ver_str = ".".join(str(v) for v in found)
             if not _version_ok(found, min_ver):
                 logger.warning(
@@ -430,15 +430,25 @@ def check_all_requirements(cfg: "Config") -> None:
                     )
 
     # ── Reference files (cannot auto-download — licensing) ───────────────
+    _gsutil = "gsutil cp gs://gatk-best-practices/somatic-hg38"
+    _genomics = "gsutil cp gs://genomics-public-data/references/hg38/v0"
     ref_files = {
-        "Reference genome (--reference)": (cfg.reference,
-            "Download: gsutil cp gs://genomics-public-data/references/hg38/v0/Homo_sapiens_assembly38.fasta ."),
-        "dbSNP VCF (--dbsnp)": (cfg.dbsnp,
-            "Download: gsutil cp gs://gatk-best-practices/somatic-hg38/af-only-gnomad.hg38.vcf.gz ."),
-        "Mills indels (--mills)": (cfg.mills,
-            "Download: gsutil cp gs://gatk-best-practices/somatic-hg38/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz ."),
-        "Known indels (--known-indels)": (cfg.known_indels,
-            "Download: gsutil cp gs://gatk-best-practices/somatic-hg38/Homo_sapiens_assembly38.known_indels.vcf.gz ."),
+        "Reference genome (--reference)": (
+            cfg.reference,
+            f"Download: {_genomics}/Homo_sapiens_assembly38.fasta .",
+        ),
+        "dbSNP VCF (--dbsnp)": (
+            cfg.dbsnp,
+            f"Download: {_gsutil}/af-only-gnomad.hg38.vcf.gz .",
+        ),
+        "Mills indels (--mills)": (
+            cfg.mills,
+            f"Download: {_gsutil}/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz .",
+        ),
+        "Known indels (--known-indels)": (
+            cfg.known_indels,
+            f"Download: {_gsutil}/Homo_sapiens_assembly38.known_indels.vcf.gz .",
+        ),
         "ANNOVAR humandb (--annovar-db)": (cfg.annovar_db, ""),
     }
     for label, (path, hint) in ref_files.items():

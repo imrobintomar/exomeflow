@@ -11,7 +11,7 @@ Mirrors the Bash functions:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+import subprocess
 from typing import TYPE_CHECKING
 
 from exomeflow.utils import Checkpoint, run_cmd
@@ -38,7 +38,7 @@ def sort_bam(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
         logger.info("[%s] BAM sorting already completed, skipping.", sample)
         return
 
-    input_bam  = cfg.map_dir / f"{sample}.bam"
+    input_bam = cfg.map_dir / f"{sample}.bam"
     output_bam = cfg.map_dir / f"{sample}_sorted.bam"
 
     logger.info("[%s] Sorting BAM ...", sample)
@@ -74,13 +74,12 @@ def generate_flagstat(sample: str, cfg: "Config", checkpoint: Checkpoint) -> Non
         logger.info("[%s] Flagstat already generated, skipping.", sample)
         return
 
-    bam    = cfg.map_dir / f"{sample}_sorted.bam"
+    bam = cfg.map_dir / f"{sample}_sorted.bam"
     output = cfg.map_dir / f"{sample}_flagstat.txt"
 
     logger.info("[%s] Generating flagstat ...", sample)
 
     # samtools flagstat writes to stdout; capture and write to file
-    import subprocess
     env = cfg.env()
     result = subprocess.run(
         ["samtools", "flagstat", str(bam)],
@@ -117,9 +116,9 @@ def mark_duplicates(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
         logger.info("[%s] MarkDuplicates already completed, skipping.", sample)
         return
 
-    input_bam  = cfg.map_dir / f"{sample}_sorted.bam"
+    input_bam = cfg.map_dir / f"{sample}_sorted.bam"
     output_bam = cfg.map_dir / f"{sample}_markdup.bam"
-    metrics    = cfg.map_dir / f"{sample}_markdup_metrics.txt"
+    metrics = cfg.map_dir / f"{sample}_markdup_metrics.txt"
 
     logger.info("[%s] Marking duplicates ...", sample)
 

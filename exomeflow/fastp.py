@@ -10,10 +10,9 @@ Mirrors the Bash ``run_fastp`` function exactly:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from exomeflow.utils import Checkpoint, PipelineStepError, run_cmd
+from exomeflow.utils import Checkpoint, run_cmd
 
 if TYPE_CHECKING:
     from exomeflow.config import Config
@@ -54,8 +53,8 @@ def run_fastp(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
 
     out_r1 = cfg.fastp_dir / f"{sample}_1_filtered.fastq.gz"
     out_r2 = cfg.fastp_dir / f"{sample}_2_filtered.fastq.gz"
-    html   = cfg.fastp_dir / f"{sample}_fastp.html"
-    json   = cfg.fastp_dir / f"{sample}_fastp.json"
+    html = cfg.fastp_dir / f"{sample}_fastp.html"
+    json = cfg.fastp_dir / f"{sample}_fastp.json"
 
     logger.info("[%s] Running fastp ...", sample)
 

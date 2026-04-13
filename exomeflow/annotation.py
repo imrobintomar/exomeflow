@@ -38,7 +38,7 @@ def run_annovar_annotation(
         logger.info("[%s] ANNOVAR annotation already completed, skipping.", sample)
         return
 
-    vcf    = cfg.vcf_dir / f"{sample}_PASS.vcf"
+    vcf = cfg.vcf_dir / f"{sample}_PASS.vcf"
     prefix = cfg.vcf_dir / f"{sample}.annovar"
 
     table_annovar = Path(cfg.annovar_bin) / "table_annovar.pl"

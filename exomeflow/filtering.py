@@ -49,13 +49,13 @@ def run_variant_filtration(
         logger.info("[%s] Variant filtering already completed, skipping.", sample)
         return
 
-    vcf           = cfg.vcf_dir / f"{sample}.vcf"
-    snp_raw       = cfg.vcf_dir / f"{sample}_snp_raw.vcf"
-    indel_raw     = cfg.vcf_dir / f"{sample}_indel_raw.vcf"
-    snp_filtered  = cfg.vcf_dir / f"{sample}_snp_filtered.vcf"
-    indel_filtered= cfg.vcf_dir / f"{sample}_indel_filtered.vcf"
-    merged        = cfg.vcf_dir / f"{sample}_merged_filtered.vcf"
-    pass_vcf      = cfg.vcf_dir / f"{sample}_PASS.vcf"
+    vcf = cfg.vcf_dir / f"{sample}.vcf"
+    snp_raw = cfg.vcf_dir / f"{sample}_snp_raw.vcf"
+    indel_raw = cfg.vcf_dir / f"{sample}_indel_raw.vcf"
+    snp_filtered = cfg.vcf_dir / f"{sample}_snp_filtered.vcf"
+    indel_filtered = cfg.vcf_dir / f"{sample}_indel_filtered.vcf"
+    merged = cfg.vcf_dir / f"{sample}_merged_filtered.vcf"
+    pass_vcf = cfg.vcf_dir / f"{sample}_PASS.vcf"
 
     env = cfg.env()
 
@@ -137,10 +137,10 @@ def run_variant_filtration(
     )
 
     # ------------------------------------------------------------------ 6. Summary
-    total       = count_variants(vcf)
-    snp_count   = count_variants(snp_raw)
+    total = count_variants(vcf)
+    snp_count = count_variants(snp_raw)
     indel_count = count_variants(indel_raw)
-    passed      = count_variants(pass_vcf)
+    passed = count_variants(pass_vcf)
     logger.info(
         "[%s] Total: %d | SNPs: %d | INDELs: %d | PASS: %d | Filtered: %d",
         sample, total, snp_count, indel_count, passed, total - passed,
@@ -148,11 +148,11 @@ def run_variant_filtration(
 
     # ------------------------------------------------------------------ 7. Clean-up
     intermediates = [
-        snp_raw,    Path(str(snp_raw)    + ".idx"),
-        indel_raw,  Path(str(indel_raw)  + ".idx"),
-        snp_filtered, Path(str(snp_filtered)  + ".idx"),
+        snp_raw, Path(str(snp_raw) + ".idx"),
+        indel_raw, Path(str(indel_raw) + ".idx"),
+        snp_filtered, Path(str(snp_filtered) + ".idx"),
         indel_filtered, Path(str(indel_filtered) + ".idx"),
-        merged,     Path(str(merged)     + ".idx"),
+        merged, Path(str(merged) + ".idx"),
     ]
     for p in intermediates:
         p.unlink(missing_ok=True)

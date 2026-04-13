@@ -12,10 +12,9 @@ Mirrors the Bash ``run_base_recalibration`` function:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from exomeflow.utils import Checkpoint, PipelineStepError, run_cmd
+from exomeflow.utils import Checkpoint, run_cmd
 
 if TYPE_CHECKING:
     from exomeflow.config import Config
@@ -40,9 +39,9 @@ def run_base_recalibration(
         logger.info("[%s] BQSR already completed, skipping.", sample)
         return
 
-    markdup_bam  = cfg.map_dir / f"{sample}_markdup.bam"
-    recal_table  = cfg.map_dir / f"{sample}_recal.table"
-    recal_bam    = cfg.map_dir / f"{sample}_recalibrated.bam"
+    markdup_bam = cfg.map_dir / f"{sample}_markdup.bam"
+    recal_table = cfg.map_dir / f"{sample}_recal.table"
+    recal_bam = cfg.map_dir / f"{sample}_recalibrated.bam"
 
     # ------------------------------------------------------------------ 1/2
     logger.info("[%s] Running BaseRecalibrator ...", sample)
@@ -50,12 +49,12 @@ def run_base_recalibration(
     run_cmd(
         [
             "gatk", "BaseRecalibrator",
-            "-I",             str(markdup_bam),
-            "--known-sites",  str(cfg.dbsnp),
-            "--known-sites",  str(cfg.known_indels),
-            "--known-sites",  str(cfg.mills),
-            "-O",             str(recal_table),
-            "-R",             str(cfg.reference),
+            "-I", str(markdup_bam),
+            "--known-sites", str(cfg.dbsnp),
+            "--known-sites", str(cfg.known_indels),
+            "--known-sites", str(cfg.mills),
+            "-O", str(recal_table),
+            "-R", str(cfg.reference),
         ],
         env=cfg.env(),
         step_name="BaseRecalibrator",

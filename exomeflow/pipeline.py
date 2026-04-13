@@ -16,7 +16,6 @@ import signal
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from exomeflow.annotation import run_annovar_annotation
@@ -69,16 +68,16 @@ def process_sample(sample: str, cfg: "Config", timestamp: str) -> None:
     sample_logger.info("=" * 50)
 
     steps = [
-        ("fastp",       lambda: run_fastp(sample, cfg, checkpoint)),
-        ("bwa",         lambda: run_bwa_mem(sample, cfg, checkpoint)),
-        ("sort",        lambda: sort_bam(sample, cfg, checkpoint)),
-        ("flagstat",    lambda: generate_flagstat(sample, cfg, checkpoint)),
-        ("markdup",     lambda: mark_duplicates(sample, cfg, checkpoint)),
-        ("index",       lambda: build_bam_index(sample, cfg, checkpoint)),
-        ("bqsr",        lambda: run_base_recalibration(sample, cfg, checkpoint)),
-        ("haplotype",   lambda: run_haplotype_caller(sample, cfg, checkpoint)),
-        ("filter",      lambda: run_variant_filtration(sample, cfg, checkpoint)),
-        ("annovar",     lambda: run_annovar_annotation(sample, cfg, checkpoint)),
+        ("fastp", lambda: run_fastp(sample, cfg, checkpoint)),
+        ("bwa", lambda: run_bwa_mem(sample, cfg, checkpoint)),
+        ("sort", lambda: sort_bam(sample, cfg, checkpoint)),
+        ("flagstat", lambda: generate_flagstat(sample, cfg, checkpoint)),
+        ("markdup", lambda: mark_duplicates(sample, cfg, checkpoint)),
+        ("index", lambda: build_bam_index(sample, cfg, checkpoint)),
+        ("bqsr", lambda: run_base_recalibration(sample, cfg, checkpoint)),
+        ("haplotype", lambda: run_haplotype_caller(sample, cfg, checkpoint)),
+        ("filter", lambda: run_variant_filtration(sample, cfg, checkpoint)),
+        ("annovar", lambda: run_annovar_annotation(sample, cfg, checkpoint)),
     ]
 
     for step_name, step_fn in steps:

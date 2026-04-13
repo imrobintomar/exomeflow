@@ -7,7 +7,6 @@ Entry point registered in pyproject.toml:
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Optional
 

@@ -27,7 +27,7 @@ SNP_FILTERS: list[tuple[str, str]] = [
     ("SOR > 3.0",            "SNP_StrandOddsRatio"),
     ("MQ < 40.0",            "SNP_LowMQ"),
     ("MQRankSum < -12.5",    "SNP_MQRankSum"),
-    ("ReadPosRankSum < -8.0","SNP_ReadPosRankSum"),
+    ("ReadPosRankSum < -8.0", "SNP_ReadPosRankSum"),
     ("DP < 10",              "LowDepth"),
 ]
 SNP_GENOTYPE_FILTERS: list[tuple[str, str]] = [
