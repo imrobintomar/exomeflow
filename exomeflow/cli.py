@@ -180,3 +180,46 @@ def run_command(
 
     failed = run_pipeline(cfg)
     raise typer.Exit(code=min(failed, 1))
+
+
+@app.command("setup")
+def setup_command(
+    refs_dir: Path = typer.Option(
+        ...,
+        "--refs-dir",
+        help="Directory to download reference genome files into.",
+    ),
+    annovar_bin: Path = typer.Option(
+        ...,
+        "--annovar-bin",
+        help="ANNOVAR installation directory (must contain annotate_variation.pl).",
+    ),
+    annovar_db: Path = typer.Option(
+        ...,
+        "--annovar-db",
+        help="ANNOVAR humandb directory for hg38 database downloads.",
+    ),
+) -> None:
+    """
+    Install all dependencies and download reference files + ANNOVAR databases.
+
+    \b
+    What this does
+    --------------
+    1. Installs required Python packages (pip)
+    2. Checks / installs system tools (fastp, BWA, samtools, GATK, ANNOVAR)
+    3. Downloads hg38 reference files (~13 GB) via gsutil or wget
+    4. Downloads ANNOVAR databases (~100 GB total)
+
+    \b
+    Example
+    -------
+    exomeflow setup \\
+      --refs-dir /data/references/hg38 \\
+      --annovar-bin /opt/annovar \\
+      --annovar-db /opt/annovar/humandb
+    """
+    from exomeflow.setup_env import run_setup
+
+    failed = run_setup(refs_dir=refs_dir, annovar_bin=annovar_bin, annovar_db=annovar_db)
+    raise typer.Exit(code=min(failed, 1))
