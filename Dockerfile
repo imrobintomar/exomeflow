@@ -51,16 +51,16 @@ RUN apt-get update -qq && \
 RUN conda config --add channels defaults && \
     conda config --add channels bioconda && \
     conda config --add channels conda-forge && \
-    conda config --set channel_priority strict
+    conda config --set channel_priority flexible
 
 # ── Bioinformatics tools ─────────────────────────────────────────────────────
 RUN conda install -y \
-        bwa=0.7.17 \
-        samtools=1.13 \
-        fastp=0.20.1 \
-        gatk4=4.6.0.0 \
+        "bwa>=0.7.17" \
+        "samtools>=1.13" \
+        "fastp>=0.20.1" \
+        "gatk4>=4.4.0" \
         perl \
-        openjdk=17 \
+        "openjdk>=17" \
     && conda clean -afy
 
 # ── Java options ─────────────────────────────────────────────────────────────
