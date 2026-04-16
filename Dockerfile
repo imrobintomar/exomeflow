@@ -84,6 +84,17 @@ RUN echo "=== Verifying tools ===" && \
     exomeflow --version && \
     echo "=== All tools verified ==="
 
+# ── ANNOVAR note ─────────────────────────────────────────────────────────────
+# ANNOVAR cannot be bundled due to licensing restrictions.
+# Register and download from: https://annovar.openbioinformatics.org
+# Then mount your local installation at runtime:
+#   -v /your/annovar:/annovar
+#   -v /your/annovar/humandb:/annovar/humandb
+#
+# Required databases (download with annotate_variation.pl -downdb):
+#   refGene, dbnsfp47a, clinvar_20240416, gnomad41_exome,
+#   gnomad41_genome, avsnp150, cosmic84_coding, exac03
+
 # ── Mount points ─────────────────────────────────────────────────────────────
 # /data/fastq    — input FASTQ files
 # /data/results  — pipeline output
