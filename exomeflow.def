@@ -1,0 +1,125 @@
+# ============================================================
+# ExomeFlow — Singularity Definition File
+# For HPC clusters where Docker is not available
+#
+# ── Build ────────────────────────────────────────────────────
+#   singularity build exomeflow-1.0.7.sif exomeflow.def
+#
+#   # Or pull directly from Docker Hub (no build needed):
+#   singularity pull exomeflow-1.0.7.sif docker://itsrobintomar/exomeflow:1.0.7
+#
+# ── Run ─────────────────────────────────────────────────────
+#   singularity exec \
+#     --bind /path/to/fastq:/data/fastq \
+#     --bind /path/to/refs:/refs \
+#     --bind /path/to/vcf:/vcf \
+#     --bind /path/to/annovar:/annovar \
+#     --bind /path/to/results:/data/results \
+#     exomeflow-1.0.7.sif exomeflow run \
+#       --input-dir    /data/fastq \
+#       --output       /data/results \
+#       --reference    /refs/Homo_sapiens_assembly38.fasta \
+#       --dbsnp        /vcf/Homo_sapiens_assembly38.dbsnp138.vcf.gz \
+#       --mills        /vcf/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+#       --known-indels /vcf/Homo_sapiens_assembly38.known_indels.vcf.gz \
+#       --annovar-bin  /annovar \
+#       --annovar-db   /annovar/humandb \
+#       --threads      24
+#
+# ── SLURM job script example ────────────────────────────────
+#   #!/bin/bash
+#   #SBATCH --job-name=exomeflow
+#   #SBATCH --cpus-per-task=24
+#   #SBATCH --mem=90G
+#   #SBATCH --time=24:00:00
+#
+#   singularity exec \
+#     --bind $FASTQ_DIR:/data/fastq \
+#     --bind $REFS_DIR:/refs \
+#     --bind $VCF_DIR:/vcf \
+#     --bind $ANNOVAR_DIR:/annovar \
+#     --bind $RESULTS_DIR:/data/results \
+#     exomeflow-1.0.7.sif exomeflow run \
+#       --input-dir /data/fastq --output /data/results \
+#       --reference /refs/Homo_sapiens_assembly38.fasta \
+#       --dbsnp     /vcf/Homo_sapiens_assembly38.dbsnp138.vcf.gz \
+#       --mills     /vcf/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+#       --known-indels /vcf/Homo_sapiens_assembly38.known_indels.vcf.gz \
+#       --annovar-bin /annovar --annovar-db /annovar/humandb \
+#       --threads $SLURM_CPUS_PER_TASK
+# ============================================================
+
+Bootstrap: docker
+From: broadinstitute/gatk:4.6.2.0
+
+%labels
+    Author          Robin Tomar
+    Affiliation     AIIMS New Delhi
+    Email           itsrobintomar@gmail.com
+    Version         1.0.7
+    URL             https://github.com/imrobintomar/exomeflow
+
+%help
+    ExomeFlow v1.0.7 — Production Whole Exome Sequencing Analysis Pipeline
+
+    Workflow: FASTQ → fastp → BWA MEM → GATK BQSR → HaplotypeCaller
+              → Filtering → ANNOVAR annotation
+
+    Usage:
+      singularity exec exomeflow-1.0.7.sif exomeflow run \
+        --input-dir /data/fastq --output /data/results \
+        --reference /refs/Homo_sapiens_assembly38.fasta \
+        --dbsnp     /vcf/Homo_sapiens_assembly38.dbsnp138.vcf.gz \
+        --mills     /vcf/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+        --known-indels /vcf/Homo_sapiens_assembly38.known_indels.vcf.gz \
+        --annovar-bin /annovar --annovar-db /annovar/humandb \
+        --threads 24
+
+    Note: ANNOVAR must be mounted — it cannot be bundled due to licensing.
+
+%environment
+    export JAVA_OPTS="-Xmx80g"
+    export LC_ALL=C
+    export PATH="/opt/conda/bin:${PATH}"
+
+%post
+    # System packages
+    apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        perl \
+        libncurses5-dev \
+        libbz2-dev \
+        liblzma-dev \
+        zlib1g-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+    # Conda channels
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+    conda config --set channel_priority flexible
+
+    # Bioinformatics tools (GATK already in base image)
+    conda install -y \
+        "bwa>=0.7.17" \
+        "samtools>=1.13" \
+        "fastp>=0.20.1" \
+        perl \
+    && conda clean -afy
+
+    # ExomeFlow
+    pip install --no-cache-dir exomeflow==1.0.7
+
+    # Verify
+    gatk --version
+    bwa 2>&1 | head -3
+    samtools --version | head -1
+    fastp --version 2>&1 | head -1
+    perl --version | head -2
+    exomeflow --version
+
+    # Mount point stubs
+    mkdir -p /data/fastq /data/results /refs /vcf /annovar /annovar/humandb
+
+%runscript
+    exec exomeflow "$@"

@@ -155,49 +155,98 @@ pip install exomeflow
 ### Option 2 — Docker
 
 ```bash
-# Pull image
-docker pull itsrobintomar/exomeflow:latest
+# Pull
+docker pull itsrobintomar/exomeflow:1.0.7
 
-# Run pipeline
+# Run
 docker run --rm -it \
   -v /path/to/fastq:/data/fastq \
   -v /path/to/refs:/refs \
+  -v /path/to/vcf:/vcf \
   -v /path/to/annovar:/annovar \
   -v /path/to/results:/data/results \
-  itsrobintomar/exomeflow:latest run \
+  itsrobintomar/exomeflow:1.0.7 run \
     --input-dir    /data/fastq \
     --output       /data/results \
-    --reference    /refs/hg38.fa \
-    --dbsnp        /refs/dbsnp.vcf.gz \
-    --mills        /refs/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
-    --known-indels /refs/Homo_sapiens_assembly38.known_indels.vcf.gz \
+    --reference    /refs/Homo_sapiens_assembly38.fasta \
+    --dbsnp        /vcf/Homo_sapiens_assembly38.dbsnp138.vcf.gz \
+    --mills        /vcf/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+    --known-indels /vcf/Homo_sapiens_assembly38.known_indels.vcf.gz \
     --annovar-bin  /annovar \
     --annovar-db   /annovar/humandb \
     --threads      24
 ```
 
+| Volume mount | Host path | Container path |
+|---|---|---|
+| Input FASTQs | `/your/fastq/` | `/data/fastq` |
+| Reference FASTA + BWA index | `/your/refs/` | `/refs` |
+| VCF files (dbSNP, Mills, known indels) | `/your/vcf/` | `/vcf` |
+| ANNOVAR scripts | `/your/annovar/` | `/annovar` |
+| ANNOVAR humandb | `/your/annovar/humandb/` | `/annovar/humandb` |
+| Output | `/your/results/` | `/data/results` |
+
+> **Note:** ANNOVAR must be mounted — it cannot be bundled due to licensing.
+> Register and download at [annovar.openbioinformatics.org](https://annovar.openbioinformatics.org)
+
 ### Option 3 — Singularity (HPC clusters)
 
 ```bash
-# Pull from Docker Hub
-singularity pull docker://itsrobintomar/exomeflow:latest
+# Option A — Pull directly from Docker Hub (easiest)
+singularity pull exomeflow-1.0.7.sif docker://itsrobintomar/exomeflow:1.0.7
 
-# Run pipeline
-singularity exec exomeflow_latest.sif exomeflow run \
-  --input-dir    /path/to/fastq \
-  --output       /path/to/results \
-  --reference    /path/to/hg38.fa \
-  --dbsnp        /path/to/dbsnp.vcf.gz \
-  --mills        /path/to/mills.vcf.gz \
-  --known-indels /path/to/known_indels.vcf.gz \
-  --annovar-bin  /path/to/annovar \
-  --annovar-db   /path/to/annovar/humandb \
-  --threads      24
+# Option B — Build from definition file
+singularity build exomeflow-1.0.7.sif exomeflow.def
+
+# Run
+singularity exec \
+  --bind /path/to/fastq:/data/fastq \
+  --bind /path/to/refs:/refs \
+  --bind /path/to/vcf:/vcf \
+  --bind /path/to/annovar:/annovar \
+  --bind /path/to/results:/data/results \
+  exomeflow-1.0.7.sif exomeflow run \
+    --input-dir    /data/fastq \
+    --output       /data/results \
+    --reference    /refs/Homo_sapiens_assembly38.fasta \
+    --dbsnp        /vcf/Homo_sapiens_assembly38.dbsnp138.vcf.gz \
+    --mills        /vcf/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+    --known-indels /vcf/Homo_sapiens_assembly38.known_indels.vcf.gz \
+    --annovar-bin  /annovar \
+    --annovar-db   /annovar/humandb \
+    --threads      24
 ```
 
-> **Note:** ANNOVAR requires registration at [annovar.openbioinformatics.org](https://annovar.openbioinformatics.org)
-> and must be mounted as a volume (`-v /your/annovar:/annovar`).
-> It cannot be bundled in the Docker image due to licensing restrictions.
+<details>
+<summary>SLURM job script example</summary>
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=exomeflow
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=90G
+#SBATCH --time=24:00:00
+#SBATCH --output=exomeflow_%j.log
+
+singularity exec \
+  --bind $FASTQ_DIR:/data/fastq \
+  --bind $REFS_DIR:/refs \
+  --bind $VCF_DIR:/vcf \
+  --bind $ANNOVAR_DIR:/annovar \
+  --bind $RESULTS_DIR:/data/results \
+  exomeflow-1.0.7.sif exomeflow run \
+    --input-dir    /data/fastq \
+    --output       /data/results \
+    --reference    /refs/Homo_sapiens_assembly38.fasta \
+    --dbsnp        /vcf/Homo_sapiens_assembly38.dbsnp138.vcf.gz \
+    --mills        /vcf/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+    --known-indels /vcf/Homo_sapiens_assembly38.known_indels.vcf.gz \
+    --annovar-bin  /annovar \
+    --annovar-db   /annovar/humandb \
+    --threads      $SLURM_CPUS_PER_TASK
+```
+
+</details>
 
 The list of changes between each release can be found in the
 [Release History](https://github.com/imrobintomar/exomeflow/releases).
