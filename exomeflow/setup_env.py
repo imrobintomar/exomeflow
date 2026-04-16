@@ -299,30 +299,85 @@ def setup_system_tools() -> list[str]:
     return failures
 
 
-def setup_reference_files(refs_dir: Path) -> list[str]:
-    """Download hg38 reference files. Returns list of failures."""
+def _find_existing_refs(refs_dir: Path) -> dict[str, Path]:
+    """
+    Scan refs_dir for known reference filenames.
+    Also accepts common alternate names (e.g. hg38.fa, hg38.fasta).
+    Returns {canonical_filename: found_path}.
+    """
+    # Alternate names users might already have
+    ALTERNATES: dict[str, list[str]] = {
+        "Homo_sapiens_assembly38.fasta": [
+            "hg38.fa", "hg38.fasta", "GRCh38.fa", "GRCh38.fasta",
+            "hg38.p14.fa", "Homo_sapiens_assembly38.fa",
+        ],
+        "dbsnp_146.hg38.vcf.gz": [
+            "dbsnp.vcf.gz", "dbsnp138.hg38.vcf.gz", "dbsnp_138.hg38.vcf.gz",
+        ],
+        "Mills_and_1000G_gold_standard.indels.hg38.vcf.gz": [
+            "mills.vcf.gz", "mills_indels.vcf.gz",
+        ],
+        "Homo_sapiens_assembly38.known_indels.vcf.gz": [
+            "known_indels.vcf.gz", "Homo_sapiens_assembly38.known_indels.vcf.gz",
+        ],
+    }
+    found: dict[str, Path] = {}
+    for filename, _, _, _ in REFERENCE_FILES:
+        # Check canonical name
+        p = refs_dir / filename
+        if p.exists():
+            found[filename] = p
+            continue
+        # Check alternate names
+        for alt in ALTERNATES.get(filename, []):
+            p = refs_dir / alt
+            if p.exists():
+                found[filename] = p
+                break
+    return found
+
+
+def setup_reference_files(refs_dir: Path, existing_refs_dir: Path | None = None) -> list[str]:
+    """
+    Download hg38 reference files or verify existing ones.
+
+    If existing_refs_dir is provided, checks that directory first.
+    Only downloads files that are genuinely missing.
+    Returns list of failures.
+    """
     console.print(Panel("[bold]Step 3 — Reference Files (hg38)[/bold]", style="blue"))
     refs_dir.mkdir(parents=True, exist_ok=True)
 
-    # Show what will be downloaded
+    # ── Check existing path first ────────────────────────────────────────────
+    search_dir = existing_refs_dir if existing_refs_dir else refs_dir
+    if existing_refs_dir:
+        console.print(f"  Checking existing references in: [cyan]{existing_refs_dir}[/cyan]")
+
+    existing = _find_existing_refs(search_dir)
+
     table = Table(show_header=True, header_style="bold cyan")
     table.add_column("File", style="white")
     table.add_column("Size", justify="right", style="yellow")
     table.add_column("Status", justify="center")
+    table.add_column("Path", style="dim")
 
     missing = []
     for filename, gcs_path, description, size_mb in REFERENCE_FILES:
-        dest = refs_dir / filename
-        status = "[green]exists[/green]" if dest.exists() else "[red]missing[/red]"
         size_str = f"~{size_mb:,} MB" if size_mb > 1 else "< 1 MB"
-        table.add_row(filename, size_str, status)
-        if not dest.exists():
+        if filename in existing:
+            table.add_row(filename, size_str,
+                          "[green]✔ found[/green]",
+                          str(existing[filename]))
+        else:
+            table.add_row(filename, size_str,
+                          "[red]missing[/red]", "—")
+            dest = refs_dir / filename
             missing.append((filename, gcs_path, description, size_mb, dest))
 
     console.print(table)
 
     if not missing:
-        console.print("  [green]✔[/green]  All reference files already present.")
+        console.print("  [green]✔[/green]  All reference files already present — skipping download.")
         return []
 
     total_mb = sum(m[3] for m in missing)
@@ -334,12 +389,12 @@ def setup_reference_files(refs_dir: Path) -> list[str]:
     if not _ask(f"Download {len(missing)} missing reference file(s) to {refs_dir}?"):
         return [f"Reference file not downloaded: {m[0]}" for m in missing]
 
-    # Choose download method
+    # ── Choose download method ───────────────────────────────────────────────
     use_gsutil = _gsutil_available()
     if not use_gsutil:
         console.print(
             "  [yellow]⚠[/yellow]  gsutil not found. Using wget instead.\n"
-            "  [dim]For faster downloads, install gsutil:[/dim] "
+            "  [dim]For faster downloads:[/dim] "
             "[cyan]conda install -c conda-forge google-cloud-sdk[/cyan]"
         )
 
@@ -349,7 +404,6 @@ def setup_reference_files(refs_dir: Path) -> list[str]:
         if use_gsutil:
             ok = _download_gsutil(gcs_path, dest)
         else:
-            # Convert GCS path to HTTPS URL for wget
             https_url = gcs_path.replace(
                 "gs://genomics-public-data",
                 "https://storage.googleapis.com/genomics-public-data",
@@ -365,9 +419,11 @@ def setup_reference_files(refs_dir: Path) -> list[str]:
             console.print(f"  [red]✘[/red]  {filename} download failed.")
             failures.append(f"Download failed: {filename}")
 
-    # Index the FASTA if it was just downloaded
+    # ── BWA index ────────────────────────────────────────────────────────────
     fasta = refs_dir / "Homo_sapiens_assembly38.fasta"
-    bwa_index_file = refs_dir / "Homo_sapiens_assembly38.fasta.bwt"
+    if not fasta.exists() and existing_refs_dir:
+        fasta = existing.get("Homo_sapiens_assembly38.fasta", fasta)
+    bwa_index_file = fasta.parent / (fasta.name + ".bwt")
     if fasta.exists() and not bwa_index_file.exists():
         console.print("\n  [yellow]⚠[/yellow]  BWA index not found for reference.")
         if _ask("Build BWA index now? (takes ~60 min, ~8 GB disk space)"):
@@ -469,6 +525,7 @@ def run_setup(
     refs_dir: Path,
     annovar_bin: Path,
     annovar_db: Path,
+    existing_refs_dir: Path | None = None,
 ) -> int:
     """
     Run the full setup sequence.
@@ -485,7 +542,7 @@ def run_setup(
 
     all_failures += setup_python_packages()
     all_failures += setup_system_tools()
-    all_failures += setup_reference_files(refs_dir)
+    all_failures += setup_reference_files(refs_dir, existing_refs_dir)
     all_failures += setup_annovar_databases(annovar_bin, annovar_db)
 
     # ── Summary ──────────────────────────────────────────────────────────

@@ -241,6 +241,11 @@ def setup_command(
         "--annovar-db",
         help="ANNOVAR humandb directory for hg38 database downloads.",
     ),
+    existing_refs: Optional[Path] = typer.Option(
+        None,
+        "--existing-refs",
+        help="Path to existing reference files — skips download if files are found here.",
+    ),
 ) -> None:
     """
     Install all dependencies and download reference files + ANNOVAR databases.
@@ -250,18 +255,31 @@ def setup_command(
     --------------
     1. Installs required Python packages (pip)
     2. Checks / installs system tools (fastp, BWA, samtools, GATK, ANNOVAR)
-    3. Downloads hg38 reference files (~13 GB) via gsutil or wget
-    4. Downloads ANNOVAR databases (~100 GB total)
+    3. Downloads hg38 reference files (~13 GB) — skipped if already present
+    4. Downloads ANNOVAR databases (~100 GB total) — skipped if already present
 
     \b
-    Example
-    -------
+    Examples
+    --------
+    # Fresh install — download everything:
     exomeflow setup \\
-      --refs-dir /data/references/hg38 \\
+      --refs-dir    /data/references/hg38 \\
       --annovar-bin /opt/annovar \\
-      --annovar-db /opt/annovar/humandb
+      --annovar-db  /opt/annovar/humandb
+
+    # Already have reference files — skip download:
+    exomeflow setup \\
+      --refs-dir       /data/references/hg38 \\
+      --existing-refs  /media/drprabudh/m1/hg38 \\
+      --annovar-bin    /opt/annovar \\
+      --annovar-db     /media/drprabudh/m1/annovar/hg38_humandb
     """
     from exomeflow.setup_env import run_setup
 
-    failed = run_setup(refs_dir=refs_dir, annovar_bin=annovar_bin, annovar_db=annovar_db)
+    failed = run_setup(
+        refs_dir=refs_dir,
+        annovar_bin=annovar_bin,
+        annovar_db=annovar_db,
+        existing_refs_dir=existing_refs,
+    )
     raise typer.Exit(code=min(failed, 1))
