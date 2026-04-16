@@ -3,12 +3,12 @@
 # Docker image
 #
 # Build:
-#   docker build -t imrobintomar/exomeflow:1.0.6 .
-#   docker tag imrobintomar/exomeflow:1.0.6 imrobintomar/exomeflow:latest
+#   docker build -t itsrobintomar/exomeflow:1.0.6 .
+#   docker tag itsrobintomar/exomeflow:1.0.6 itsrobintomar/exomeflow:latest
 #
 # Push:
-#   docker push imrobintomar/exomeflow:1.0.6
-#   docker push imrobintomar/exomeflow:latest
+#   docker push itsrobintomar/exomeflow:1.0.6
+#   docker push itsrobintomar/exomeflow:latest
 #
 # Run:
 #   docker run --rm -it \
@@ -16,7 +16,7 @@
 #     -v /path/to/refs:/refs \
 #     -v /path/to/annovar:/annovar \
 #     -v /path/to/results:/data/results \
-#     imrobintomar/exomeflow:latest run \
+#     itsrobintomar/exomeflow:latest run \
 #       --input-dir    /data/fastq \
 #       --output       /data/results \
 #       --reference    /refs/hg38.fa \
@@ -36,7 +36,7 @@ LABEL maintainer="Robin Tomar <itsrobintomar@gmail.com>"
 LABEL org.opencontainers.image.title="ExomeFlow"
 LABEL org.opencontainers.image.description="Production-quality Whole Exome Sequencing analysis pipeline"
 LABEL org.opencontainers.image.version="1.0.6"
-LABEL org.opencontainers.image.url="https://github.com/imrobintomar/exomeflow"
+LABEL org.opencontainers.image.url="https://github.com/itsrobintomar/exomeflow"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # ── System packages ──────────────────────────────────────────────────────────

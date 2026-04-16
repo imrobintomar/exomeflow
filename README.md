@@ -149,7 +149,7 @@ pip install exomeflow
 
 ```bash
 # Pull image
-docker pull imrobintomar/exomeflow:latest
+docker pull itsrobintomar/exomeflow:latest
 
 # Run pipeline
 docker run --rm -it \
@@ -157,7 +157,7 @@ docker run --rm -it \
   -v /path/to/refs:/refs \
   -v /path/to/annovar:/annovar \
   -v /path/to/results:/data/results \
-  imrobintomar/exomeflow:latest run \
+  itsrobintomar/exomeflow:latest run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/hg38.fa \
@@ -173,7 +173,7 @@ docker run --rm -it \
 
 ```bash
 # Pull from Docker Hub
-singularity pull docker://imrobintomar/exomeflow:latest
+singularity pull docker://itsrobintomar/exomeflow:latest
 
 # Run pipeline
 singularity exec exomeflow_latest.sif exomeflow run \
