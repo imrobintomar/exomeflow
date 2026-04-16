@@ -75,6 +75,11 @@ Here are the things ExomeFlow does well:
 
 ## Pipeline Workflow
 
+![ExomeFlow Pipeline Workflow](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/workflow_figure.png)
+
+<details>
+<summary>Text version</summary>
+
 ```
 Raw FASTQ
     │
@@ -129,6 +134,8 @@ Raw FASTQ
 │           → multianno.vcf  +  multianno.txt              │
 └─────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ---
 

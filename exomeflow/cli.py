@@ -7,6 +7,8 @@ Entry point registered in pyproject.toml:
 
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -18,42 +20,24 @@ from exomeflow import __version__
 _HELP = """
 [bold cyan]ExomeFlow[/bold cyan] — Production Whole Exome Sequencing pipeline.
 
-[bold]Commands[/bold]
-  [green]setup[/green]   Install dependencies, download hg38 references and ANNOVAR databases
-  [green]run[/green]     Execute the full WES analysis pipeline on paired FASTQ files
-
 [bold]Quick start[/bold]
 
-  [dim]# Step 1 — Install all tools and download reference data[/dim]
-  exomeflow setup --refs-dir /data/refs --annovar-bin /opt/annovar --annovar-db /opt/annovar/humandb
+  [dim]# Install[/dim]
+  pip install exomeflow
 
-  [dim]# Step 2 — Run the pipeline[/dim]
-  exomeflow run --input-dir fastq/ --reference /data/refs/hg38.fa \\
-    --dbsnp /data/refs/dbsnp.vcf.gz --mills /data/refs/mills.vcf.gz \\
-    --known-indels /data/refs/known_indels.vcf.gz \\
-    --annovar-bin /opt/annovar --annovar-db /opt/annovar/humandb --output results/
+  [dim]# Run — first launch walks you through one-time setup automatically[/dim]
+  exomeflow run --input-dir fastq/ --output results/
 
-[bold]Required system tools[/bold] (installed automatically by [green]exomeflow setup[/green])
+[bold]Commands[/bold]
+  [green]run[/green]     Execute the full WES analysis pipeline on paired FASTQ files
+  [green]setup[/green]   Re-run setup (change reference paths, download new databases)
 
-  fastp         Quality control & adapter trimming
-  bwa           Reference genome alignment (BWA-MEM)
-  samtools      BAM sorting, indexing, flagstat
-  gatk          Variant calling, BQSR, filtering (GATK 4)
-  perl          Required to run ANNOVAR
-  annovar       Variant annotation (install manually from annovar.openbioinformatics.org)
-
-[bold]Manual tool installation (if needed)[/bold]
-
-  [yellow]fastp[/yellow]        conda install -c bioconda fastp
-  [yellow]bwa[/yellow]          conda install -c bioconda bwa
-  [yellow]samtools[/yellow]     conda install -c bioconda samtools
-  [yellow]gatk[/yellow]         conda install -c bioconda gatk4
-  [yellow]perl[/yellow]         sudo apt install perl  [dim](or conda install perl)[/dim]
-  [yellow]annovar[/yellow]      Download from annovar.openbioinformatics.org (requires registration)
-
-[bold]Python dependencies[/bold] (auto-installed via pip)
-
-  typer, rich, pandas
+[bold]What happens on first run[/bold]
+  1. Bundled GATK and ANNOVAR are detected automatically
+  2. Missing tools (bwa, samtools, fastp, perl) are installed via conda
+  3. You are asked for reference genome paths (or they are downloaded)
+  4. You are asked for ANNOVAR database paths (or they are downloaded)
+  5. Everything is saved — future runs need no extra arguments
 """
 
 app = typer.Typer(
@@ -86,9 +70,20 @@ def _main(
     pass
 
 
+def _ensure_ready() -> dict:
+    """
+    Called at the start of every `exomeflow run`.
+    Checks all dependencies, fixes what's missing, returns the resolved config.
+    """
+    from exomeflow.setup_env import check_and_fix_dependencies
+    try:
+        return check_and_fix_dependencies()
+    except SystemExit as exc:
+        raise typer.Exit(code=int(exc.code or 1))
+
+
 @app.command("run")
 def run_command(
-    # ------------------------------------------------------------------ I/O
     input_dir: Path = typer.Option(
         ...,
         "--input-dir", "-i",
@@ -100,81 +95,45 @@ def run_command(
         "--output", "-o",
         help="Root output directory (created if absent).",
     ),
-    # ---------------------------------------------------------- reference files
-    reference: Path = typer.Option(
-        ...,
-        "--reference", "-r",
-        help="Path to the BWA-indexed reference genome FASTA (e.g. hg38.fa).",
-    ),
-    dbsnp: Path = typer.Option(
-        ...,
-        "--dbsnp",
-        help="Path to the dbSNP VCF (bgzipped + tabix-indexed).",
-    ),
-    mills: Path = typer.Option(
-        ...,
-        "--mills",
-        help="Path to Mills and 1000G gold standard indels VCF.",
-    ),
-    known_indels: Path = typer.Option(
-        ...,
-        "--known-indels",
-        help="Path to Homo sapiens assembly known indels VCF.",
-    ),
-    intervals: Path = typer.Option(
-        Path(""),
-        "--intervals",
-        help="Exome capture BED file. Omit to run in whole-genome mode.",
-    ),
-    interval_padding: int = typer.Option(
-        100,
-        "--interval-padding",
-        help="Base-pair padding around each target interval.",
-    ),
-    # ------------------------------------------------------------ ANNOVAR
-    annovar_bin: Path = typer.Option(
-        ...,
-        "--annovar-bin",
-        help="Directory containing table_annovar.pl (ANNOVAR installation).",
-    ),
-    annovar_db: Path = typer.Option(
-        ...,
-        "--annovar-db",
-        help="ANNOVAR humandb directory for hg38.",
-    ),
-    # ----------------------------------------------------------- performance
-    threads: int = typer.Option(
-        24,
-        "--threads", "-t",
-        help="Threads for BWA MEM and GATK HaplotypeCaller.",
-        min=1,
-    ),
-    fastp_threads: int = typer.Option(
-        8,
-        "--fastp-threads",
-        help="Threads for fastp.",
-        min=1,
-    ),
-    annovar_threads: int = typer.Option(
-        24,
-        "--annovar-threads",
-        help="Threads for ANNOVAR.",
-        min=1,
-    ),
-    max_workers: int = typer.Option(
-        1,
-        "--max-workers",
-        help="Number of samples to process in parallel.",
-        min=1,
-    ),
-    java_opts: str = typer.Option(
-        "-Xmx80g",
-        "--java-opts",
-        help="JVM options passed via JAVA_OPTS environment variable.",
-    ),
+    # ── Reference overrides (optional — auto-resolved from saved config) ──
+    reference: Optional[Path] = typer.Option(None, "--reference", "-r",
+        help="hg38 FASTA. Auto-resolved from saved config if omitted."),
+    dbsnp: Optional[Path] = typer.Option(None, "--dbsnp",
+        help="dbSNP VCF. Auto-resolved from saved config if omitted."),
+    mills: Optional[Path] = typer.Option(None, "--mills",
+        help="Mills indels VCF. Auto-resolved from saved config if omitted."),
+    known_indels: Optional[Path] = typer.Option(None, "--known-indels",
+        help="Known indels VCF. Auto-resolved from saved config if omitted."),
+    annovar_bin: Optional[Path] = typer.Option(None, "--annovar-bin",
+        help="ANNOVAR directory. Auto-resolved from saved config if omitted."),
+    annovar_db: Optional[Path] = typer.Option(None, "--annovar-db",
+        help="ANNOVAR humandb directory. Auto-resolved from saved config if omitted."),
+    # ── Pipeline options ──────────────────────────────────────────────────
+    intervals: Path = typer.Option(Path(""), "--intervals",
+        help="Exome capture BED file. Omit for whole-genome mode."),
+    interval_padding: int = typer.Option(100, "--interval-padding",
+        help="Base-pair padding around each target interval."),
+    threads: int = typer.Option(24, "--threads", "-t",
+        help="Threads for BWA MEM and GATK HaplotypeCaller.", min=1),
+    fastp_threads: int = typer.Option(8, "--fastp-threads",
+        help="Threads for fastp.", min=1),
+    annovar_threads: int = typer.Option(24, "--annovar-threads",
+        help="Threads for ANNOVAR.", min=1),
+    max_workers: int = typer.Option(1, "--max-workers",
+        help="Number of samples to process in parallel.", min=1),
+    java_opts: str = typer.Option("-Xmx80g", "--java-opts",
+        help="JVM options passed via JAVA_OPTS environment variable."),
 ) -> None:
     """
     Run the complete WES analysis pipeline.
+
+    \b
+    On first run, ExomeFlow sets itself up automatically:
+      • Detects bundled GATK and ANNOVAR
+      • Installs missing tools (bwa, samtools, fastp, perl)
+      • Asks for reference genome paths (or downloads them)
+      • Asks for ANNOVAR database paths (or downloads them)
+      • Saves everything — future runs need no extra arguments
 
     \b
     Workflow
@@ -185,34 +144,43 @@ def run_command(
     \b
     Example
     -------
-    exomeflow run \\
-      --input-dir fastq/ \\
-      --reference hg38.fa \\
-      --dbsnp dbsnp.vcf.gz \\
-      --mills mills.vcf.gz \\
-      --known-indels known_indels.vcf.gz \\
-      --intervals exome_targets.bed \\
-      --annovar-db /path/to/annovar/humandb \\
-      --annovar-bin /path/to/annovar \\
-      --threads 32 \\
-      --max-workers 2 \\
-      --output results/
+    exomeflow run --input-dir fastq/ --output results/
     """
-    # Late import keeps startup fast
     from exomeflow.config import Config
     from exomeflow.pipeline import run_pipeline
+    from exomeflow.setup_env import detect_gatk_bin
+
+    # ── First-run setup (skipped if config already complete) ─────────────
+    saved = _ensure_ready()
+
+    # ── Add GATK to PATH if not already there ────────────────────────────
+    if not shutil.which("gatk"):
+        gatk_path = Path(saved["gatk_bin"]) if "gatk_bin" in saved else detect_gatk_bin()
+        if gatk_path and gatk_path.is_file():
+            gatk_dir = str(gatk_path.parent)
+            os.environ["PATH"] = gatk_dir + os.pathsep + os.environ.get("PATH", "")
+            try:
+                gatk_path.chmod(gatk_path.stat().st_mode | 0o111)
+            except Exception:
+                pass
+
+    # ── Resolve paths: explicit CLI arg → saved config ────────────────────
+    def _r(provided: Optional[Path], key: str) -> Path:
+        if provided is not None:
+            return provided
+        return Path(saved[key])
 
     cfg = Config(
         input_dir=input_dir,
         output_dir=output,
-        reference=reference,
-        dbsnp=dbsnp,
-        mills=mills,
-        known_indels=known_indels,
+        reference=_r(reference, "reference"),
+        dbsnp=_r(dbsnp, "dbsnp"),
+        mills=_r(mills, "mills"),
+        known_indels=_r(known_indels, "known_indels"),
         intervals=intervals,
         interval_padding=interval_padding,
-        annovar_bin=annovar_bin,
-        annovar_db=annovar_db,
+        annovar_bin=_r(annovar_bin, "annovar_bin"),
+        annovar_db=_r(annovar_db, "annovar_db"),
         threads=threads,
         fastp_threads=fastp_threads,
         annovar_threads=annovar_threads,
@@ -227,59 +195,68 @@ def run_command(
 @app.command("setup")
 def setup_command(
     refs_dir: Path = typer.Option(
-        ...,
+        Path.home() / ".exomeflow" / "refs",
         "--refs-dir",
-        help="Directory to download reference genome files into.",
-    ),
-    annovar_bin: Path = typer.Option(
-        ...,
-        "--annovar-bin",
-        help="ANNOVAR installation directory (must contain annotate_variation.pl).",
-    ),
-    annovar_db: Path = typer.Option(
-        ...,
-        "--annovar-db",
-        help="ANNOVAR humandb directory for hg38 database downloads.",
+        help="Directory for reference genome files. Default: ~/.exomeflow/refs",
     ),
     existing_refs: Optional[Path] = typer.Option(
-        None,
-        "--existing-refs",
-        help="Path to existing reference files — skips download if files are found here.",
+        None, "--existing-refs",
+        help="Path to existing reference files — skips download if found here.",
+    ),
+    annovar_bin: Optional[Path] = typer.Option(
+        None, "--annovar-bin",
+        help="ANNOVAR directory. Auto-detected from ExomeFlow folder if omitted.",
+    ),
+    annovar_db: Optional[Path] = typer.Option(
+        None, "--annovar-db",
+        help="ANNOVAR humandb directory. Defaults to <annovar-bin>/humandb.",
     ),
 ) -> None:
     """
-    Install all dependencies and download reference files + ANNOVAR databases.
+    Re-run setup: change reference paths, download new databases, or repair config.
 
     \b
-    What this does
-    --------------
-    1. Installs required Python packages (pip)
-    2. Checks / installs system tools (fastp, BWA, samtools, GATK, ANNOVAR)
-    3. Downloads hg38 reference files (~13 GB) — skipped if already present
-    4. Downloads ANNOVAR databases (~100 GB total) — skipped if already present
+    You do NOT need to run this before your first `exomeflow run`.
+    First-time setup happens automatically when you run the pipeline.
+
+    \b
+    Use this command to:
+      • Switch to different reference files
+      • Download additional ANNOVAR databases
+      • Reset and repair the saved configuration
 
     \b
     Examples
     --------
-    # Fresh install — download everything:
+    # Re-run setup (uses saved/auto-detected paths):
+    exomeflow setup
+
+    # Point to existing reference files (skip download):
+    exomeflow setup --existing-refs /data/hg38
+
+    # Fully explicit:
     exomeflow setup \\
-      --refs-dir    /data/references/hg38 \\
+      --refs-dir    /data/refs \\
       --annovar-bin /opt/annovar \\
       --annovar-db  /opt/annovar/humandb
-
-    # Already have reference files — skip download:
-    exomeflow setup \\
-      --refs-dir       /data/references/hg38 \\
-      --existing-refs  /media/drprabudh/m1/hg38 \\
-      --annovar-bin    /opt/annovar \\
-      --annovar-db     /media/drprabudh/m1/annovar/hg38_humandb
     """
-    from exomeflow.setup_env import run_setup
+    from exomeflow.setup_env import detect_annovar_bin, run_setup
+
+    resolved_bin = annovar_bin or detect_annovar_bin()
+    if resolved_bin is None:
+        console.print(
+            "  [red]✘[/red]  ANNOVAR not found. Place the [cyan]annovar/[/cyan] folder "
+            "inside the ExomeFlow directory.\n"
+            "  Register + download: https://annovar.openbioinformatics.org"
+        )
+        raise typer.Exit(code=1)
+
+    resolved_db = annovar_db or (resolved_bin / "humandb")
 
     failed = run_setup(
         refs_dir=refs_dir,
-        annovar_bin=annovar_bin,
-        annovar_db=annovar_db,
+        annovar_bin=resolved_bin,
+        annovar_db=resolved_db,
         existing_refs_dir=existing_refs,
     )
     raise typer.Exit(code=min(failed, 1))

@@ -14,3 +14,7 @@ exome.sh
 
 # Benchmarks — not published
 benchmarks/
+
+# Bundled binaries — not redistributed (license)
+annovar/
+gatk-4.6.2.0/
