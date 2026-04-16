@@ -27,3 +27,7 @@ check_requirements.py
 # IDE
 .vscode/
 .idea/
+
+# ANNOVAR — excluded from public image (license restriction)
+# Only used in Dockerfile.local private builds
+annovar/
