@@ -15,7 +15,7 @@
 ## What is it?
 
 **ExomeFlow** is a Python package that provides a complete, automated Whole Exome Sequencing (WES)
-analysis workflow — from raw FASTQ files to functionally annotated variants — in a single
+analysis workflow from raw FASTQ files to functionally annotated variants in a single
 reproducible CLI command.
 
 It aims to be the standard high-level pipeline for WES analysis in Python, combining
