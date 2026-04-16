@@ -1,0 +1,29 @@
+# Git
+.git/
+.gitignore
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Benchmark data
+benchmarks/
+
+# Logs and checkpoints
+*.log
+.checkpoints/
+
+# Dev files
+*.sh
+figure2_*
+variant_counts.csv
+generate_workflow.py
+check_requirements.py
+
+# IDE
+.vscode/
+.idea/

@@ -137,16 +137,60 @@ Raw FASTQ
 The source code is hosted on GitHub at:
 **https://github.com/imrobintomar/exomeflow**
 
-Binary installers for the latest released version are available at the
-[Python Package Index (PyPI)](https://pypi.org/project/exomeflow/).
+ExomeFlow is available via three installation methods:
+
+### Option 1 — Python Package (recommended)
 
 ```bash
-# PyPI
 pip install exomeflow
-
-# Install latest development version from GitHub
-pip install git+https://github.com/imrobintomar/exomeflow.git
 ```
+
+### Option 2 — Docker
+
+```bash
+# Pull image
+docker pull imrobintomar/exomeflow:latest
+
+# Run pipeline
+docker run --rm -it \
+  -v /path/to/fastq:/data/fastq \
+  -v /path/to/refs:/refs \
+  -v /path/to/annovar:/annovar \
+  -v /path/to/results:/data/results \
+  imrobintomar/exomeflow:latest run \
+    --input-dir    /data/fastq \
+    --output       /data/results \
+    --reference    /refs/hg38.fa \
+    --dbsnp        /refs/dbsnp.vcf.gz \
+    --mills        /refs/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
+    --known-indels /refs/Homo_sapiens_assembly38.known_indels.vcf.gz \
+    --annovar-bin  /annovar \
+    --annovar-db   /annovar/humandb \
+    --threads      24
+```
+
+### Option 3 — Singularity (HPC clusters)
+
+```bash
+# Pull from Docker Hub
+singularity pull docker://imrobintomar/exomeflow:latest
+
+# Run pipeline
+singularity exec exomeflow_latest.sif exomeflow run \
+  --input-dir    /path/to/fastq \
+  --output       /path/to/results \
+  --reference    /path/to/hg38.fa \
+  --dbsnp        /path/to/dbsnp.vcf.gz \
+  --mills        /path/to/mills.vcf.gz \
+  --known-indels /path/to/known_indels.vcf.gz \
+  --annovar-bin  /path/to/annovar \
+  --annovar-db   /path/to/annovar/humandb \
+  --threads      24
+```
+
+> **Note:** ANNOVAR requires registration at [annovar.openbioinformatics.org](https://annovar.openbioinformatics.org)
+> and must be mounted as a volume (`-v /your/annovar:/annovar`).
+> It cannot be bundled in the Docker image due to licensing restrictions.
 
 The list of changes between each release can be found in the
 [Release History](https://github.com/imrobintomar/exomeflow/releases).
