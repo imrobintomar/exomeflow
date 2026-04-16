@@ -12,6 +12,5 @@ figure2_variant_summary.svg
 figure2_variant_summary.py
 exome.sh
 
-# Benchmark data — large files, not tracked
-benchmarks/Samples/
-benchmarks/results/
+# Benchmarks — not published
+benchmarks/
