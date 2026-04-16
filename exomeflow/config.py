@@ -83,7 +83,6 @@ class Config:
 
     # ---------------------------------------------------------- derived dirs
     # These are set automatically in __post_init__ from output_dir
-    qc_dir: Path = field(init=False)
     fastp_dir: Path = field(init=False)
     map_dir: Path = field(init=False)
     vcf_dir: Path = field(init=False)
@@ -92,7 +91,6 @@ class Config:
 
     def __post_init__(self) -> None:
         self.output_dir = Path(self.output_dir)
-        self.qc_dir = self.output_dir / "QC"
         self.fastp_dir = self.output_dir / "filtered_fastp"
         self.map_dir = self.output_dir / "Mapsam"
         self.vcf_dir = self.output_dir / "VCF"
@@ -104,7 +102,6 @@ class Config:
         """Create all output directories that do not yet exist."""
         for d in (
             self.output_dir,
-            self.qc_dir,
             self.fastp_dir,
             self.map_dir,
             self.vcf_dir,
