@@ -1,8 +1,8 @@
-![ExomeFlow Cover](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/ExomeFlow_Cover.png)
+![ExomeFlow Cover](https://raw.githubusercontent.com/imrobintomar/exomeflow-assets/main/ExomeFlow_Cover.png)
 
 # ExomeFlow: A Production-Quality Python WES Analysis Toolkit
 
-![ExomeFlow Icon](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/ExomeFlow_Icon.png)
+![ExomeFlow Icon](https://raw.githubusercontent.com/imrobintomar/exomeflow-assets/main/ExomeFlow_Icon.png)
 
 | | |
 |---|---|
@@ -76,7 +76,7 @@ Here are the things ExomeFlow does well:
 
 ## Pipeline Workflow
 
-![ExomeFlow Pipeline Workflow](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/workflow.png)
+![ExomeFlow Pipeline Workflow](https://raw.githubusercontent.com/imrobintomar/exomeflow-assets/main/workflow.png)
 
 <details>
 <summary>Text version</summary>
