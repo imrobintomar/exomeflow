@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Testing** | [![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/imrobintomar/exomeflow/actions) |
+| **Testing** | [![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://pypi.org/project/exomeflow/) |
 | **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![Downloads](https://static.pepy.tech/badge/exomeflow)](https://pepy.tech/project/exomeflow) |
-| **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/imrobintomar/exomeflow/blob/main/LICENSE) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo-blue)](https://github.com/imrobintomar/exomeflow) |
+| **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://pypi.org/project/exomeflow/) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo-blue)](https://pypi.org/project/exomeflow/) |
 
 ---
 
@@ -39,7 +39,6 @@ checkpointing for resumable runs, structured logging, and parallel execution out
 - [Reference Files](#reference-files)
 - [Input Convention](#input-convention)
 - [Output Files](#output-files)
-- [Documentation](#documentation)
 - [Getting Help](#getting-help)
 - [License](#license)
 - [Citation](#citation)
@@ -191,9 +190,6 @@ Accuracy evaluated against GIAB NISTv4.2.1 truth set restricted to Agilent V8 ca
 
 ## Where to get it
 
-The source code is hosted on GitHub at:
-**https://github.com/imrobintomar/exomeflow**
-
 ExomeFlow is available via three installation methods:
 
 ### Option 1 — Python Package (recommended)
@@ -245,7 +241,7 @@ docker run --rm -it \
 # Option A — Pull directly from Docker Hub (easiest)
 singularity pull exomeflow-1.0.7.sif docker://itsrobintomar/exomeflow:1.0.7
 
-# Option B — Build from definition file
+# Option B — Build from definition file (contact author for .def file)
 singularity build exomeflow-1.0.7.sif exomeflow.def
 
 # Run
@@ -297,9 +293,6 @@ singularity exec \
 ```
 
 </details>
-
-The list of changes between each release can be found in the
-[Release History](https://github.com/imrobintomar/exomeflow/releases).
 
 ---
 
@@ -440,7 +433,7 @@ exomeflow run [OPTIONS]
 Manual download:
 
 ```bash
-gsutil -m cp -r gs://genomics-public-data/resources/broad/hg38/v0/ /data/refs/
+gsutil -m cp -r gs://gcp-public-data--broad-references/hg38/v0/ /data/refs/
 ```
 
 ---
@@ -475,30 +468,18 @@ The `sample_id` can be any string — SRR accession, patient ID, etc.
 
 ---
 
-## Documentation
-
-Full usage documentation is available in [USAGE.md](USAGE.md), including:
-
-- Complete CLI option reference
-- How to resume interrupted runs
-- How to tune parallel processing
-- Common errors and fixes
-- Quick reference card
-
----
-
 ## Getting Help
 
-For usage questions, please open a
-[GitHub Issue](https://github.com/imrobintomar/exomeflow/issues).
+For usage questions and bug reports, contact:
 
-Bug reports, feature requests, and general questions are all welcome.
+**Robin Tomar** — itsrobintomar@gmail.com
+AIIMS New Delhi
 
 ---
 
 ## License
 
-[MIT](LICENSE)
+MIT — see [pypi.org/project/exomeflow](https://pypi.org/project/exomeflow/) for details.
 
 ---
 
