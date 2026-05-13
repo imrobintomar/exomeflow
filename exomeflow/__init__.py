@@ -1,9 +1,9 @@
 """
 ExomeFlow — Whole Exome Sequencing analysis pipeline.
 
-Author: Robin Tomar, AIIMS New Delhi
+Author: Robin Kumar, AIIMS New Delhi
 """
 
 __version__ = "1.0.8"
-__author__ = "Robin Tomar"
+__author__ = "Robin Kumar"
 __email__ = "robin@aiims.ac.in"

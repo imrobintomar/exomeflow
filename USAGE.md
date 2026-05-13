@@ -1,6 +1,6 @@
 # ExomeFlow — How to Use
 
-**Author:** Robin Tomar, Bioinformatics Scientist, AIIMS New Delhi  
+**Author:** Robin Kumar, Bioinformatics Scientist, AIIMS New Delhi  
 **Package:** `pip install exomeflow`  
 **Version:** 1.0.2
 
@@ -461,4 +461,4 @@ exomeflow --version
 
 ---
 
-*ExomeFlow v1.0.2 — Robin Tomar, AIIMS New Delhi, 2025*
+*ExomeFlow v1.0.2 — Robin Kumar, AIIMS New Delhi, 2025*

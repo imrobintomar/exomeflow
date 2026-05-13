@@ -118,7 +118,7 @@ def run_pipeline(cfg: "Config") -> int:
     logger.info("=" * 50)
     logger.info("ExomeFlow — Whole Exome Sequencing Analysis Pipeline")
     logger.info("=" * 50)
-    logger.info("Author  : Robin Tomar")
+    logger.info("Author  : Robin Kumar")
     logger.info("Affil.  : All India Institute of Medical Sciences (AIIMS), New Delhi")
     logger.info("Email   : itsrobintomar@gmail.com")
     logger.info("Version : %s", __import__("exomeflow").__version__)

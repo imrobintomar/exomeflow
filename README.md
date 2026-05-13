@@ -474,7 +474,7 @@ The `sample_id` can be any string — SRR accession, patient ID, etc.
 
 For usage questions and bug reports, contact:
 
-**Robin Tomar** — itsrobintomar@gmail.com
+**Robin Kumar** — itsrobintomar@gmail.com
 AIIMS New Delhi
 
 ---
@@ -489,11 +489,11 @@ MIT — see [pypi.org/project/exomeflow](https://pypi.org/project/exomeflow/) fo
 
 If you use ExomeFlow in your research, please cite:
 
-> Robin Tomar (ORCID: [0009-0002-9084-2019](https://orcid.org/0009-0002-9084-2019)).
+> Robin Kumar (ORCID: [0009-0002-9084-2019](https://orcid.org/0009-0002-9084-2019)).
 > *ExomeFlow: A Production-Quality Python Package for Automated
 > Whole Exome Sequencing Analysis*. AIIMS New Delhi, 2025.
 > https://pypi.org/project/exomeflow/
 
 ---
 
-*Built for the bioinformatics community · Robin Tomar, AIIMS New Delhi*
+*Built for the bioinformatics community · Robin Kumar, AIIMS New Delhi*

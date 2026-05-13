@@ -53,7 +53,7 @@ Bootstrap: docker
 From: broadinstitute/gatk:4.6.2.0
 
 %labels
-    Author          Robin Tomar
+    Author          Robin Kumar
     Affiliation     AIIMS New Delhi
     Email           itsrobintomar@gmail.com
     Version         1.0.7

@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
-    { name = "Robin Tomar", email = "itsrobintomar@gmail.com" }
+    { name = "Robin Kumar", email = "itsrobintomar@gmail.com" }
 ]
 keywords = ["bioinformatics", "WES", "NGS", "genomics", "exome", "variant-calling"]
 classifiers = [

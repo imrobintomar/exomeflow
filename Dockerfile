@@ -34,7 +34,7 @@
 
 FROM broadinstitute/gatk:4.6.2.0
 
-LABEL maintainer="Robin Tomar <itsrobintomar@gmail.com>"
+LABEL maintainer="Robin Kumar <itsrobintomar@gmail.com>"
 LABEL org.opencontainers.image.title="ExomeFlow"
 LABEL org.opencontainers.image.description="Production-quality Whole Exome Sequencing analysis pipeline"
 LABEL org.opencontainers.image.version="1.0.7"
