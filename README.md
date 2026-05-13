@@ -76,7 +76,7 @@ Here are the things ExomeFlow does well:
 
 ## Pipeline Workflow
 
-![ExomeFlow Pipeline Workflow](https://raw.githubusercontent.com/imrobintomar/exomeflow/refs/heads/main/workflow_figure.png)
+![ExomeFlow Pipeline Workflow](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/workflow.png)
 
 <details>
 <summary>Text version</summary>
