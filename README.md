@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Testing** | [![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/imrobintomar/exomeflow/actions) |
-| **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![PyPI Downloads](https://img.shields.io/pypi/dt/exomeflow)](https://pypi.org/project/exomeflow/) |
+| **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![Downloads](https://static.pepy.tech/badge/exomeflow)](https://pepy.tech/project/exomeflow) |
 | **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/imrobintomar/exomeflow/blob/main/LICENSE) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo-blue)](https://github.com/imrobintomar/exomeflow) |
 
 ---
