@@ -10,7 +10,7 @@
 | **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![Downloads](https://static.pepy.tech/badge/exomeflow)](https://pepy.tech/project/exomeflow) [![Wheel](https://img.shields.io/pypi/wheel/exomeflow)](https://pypi.org/project/exomeflow/) [![PyPI Status](https://img.shields.io/pypi/status/exomeflow)](https://pypi.org/project/exomeflow/) |
 | **Container** | [![Docker Pulls](https://img.shields.io/docker/pulls/itsrobintomar/exomeflow)](https://hub.docker.com/r/itsrobintomar/exomeflow) [![Docker Image Size](https://img.shields.io/docker/image-size/itsrobintomar/exomeflow/latest)](https://hub.docker.com/r/itsrobintomar/exomeflow) |
 | **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://pypi.org/project/exomeflow/) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo-blue)](https://pypi.org/project/exomeflow/) |
-| **Author** | [![AIIMS New Delhi](https://img.shields.io/badge/Institution-AIIMS%20New%20Delhi-red)](https://www.aiims.edu) [![ORCID](https://img.shields.io/badge/ORCID-add--your--id-brightgreen?logo=orcid)](https://orcid.org) |
+| **Author** | [![AIIMS New Delhi](https://img.shields.io/badge/Institution-AIIMS%20New%20Delhi-red)](https://www.aiims.edu) [![ORCID](https://img.shields.io/badge/ORCID-0009--0002--9084--2019-brightgreen?logo=orcid)](https://orcid.org/0009-0002-9084-2019) |
 
 ---
 
@@ -489,7 +489,8 @@ MIT — see [pypi.org/project/exomeflow](https://pypi.org/project/exomeflow/) fo
 
 If you use ExomeFlow in your research, please cite:
 
-> Robin Tomar. *ExomeFlow: A Production-Quality Python Package for Automated
+> Robin Tomar (ORCID: [0009-0002-9084-2019](https://orcid.org/0009-0002-9084-2019)).
+> *ExomeFlow: A Production-Quality Python Package for Automated
 > Whole Exome Sequencing Analysis*. AIIMS New Delhi, 2025.
 > https://pypi.org/project/exomeflow/
 
