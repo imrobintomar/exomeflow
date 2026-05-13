@@ -2,7 +2,8 @@ cff-version: 1.2.0
 message: "If you use ExomeFlow in your research, please cite it using this metadata."
 title: "ExomeFlow: A Production-Quality Python Package for Automated Whole Exome Sequencing Analysis"
 version: 1.0.9
-date-released: "2025-05-13"
+doi: 10.5281/zenodo.20155767
+date-released: "2026-05-13"
 authors:
   - family-names: Kumar
     given-names: Robin
@@ -32,6 +33,9 @@ license: MIT
 url: "https://pypi.org/project/exomeflow/"
 repository-code: "https://pypi.org/project/exomeflow/"
 identifiers:
+  - type: doi
+    value: 10.5281/zenodo.20155767
+    description: Zenodo DOI
   - type: url
     value: "https://pypi.org/project/exomeflow/"
     description: PyPI package page

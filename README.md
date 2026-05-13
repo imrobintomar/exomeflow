@@ -9,7 +9,7 @@
 | **Testing** | [![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://pypi.org/project/exomeflow/) [![Platform](https://img.shields.io/badge/platform-linux--64-lightgrey)](https://pypi.org/project/exomeflow/) |
 | **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![Downloads](https://static.pepy.tech/badge/exomeflow)](https://pepy.tech/project/exomeflow) [![Wheel](https://img.shields.io/pypi/wheel/exomeflow)](https://pypi.org/project/exomeflow/) [![PyPI Status](https://img.shields.io/pypi/status/exomeflow)](https://pypi.org/project/exomeflow/) |
 | **Container** | [![Docker Pulls](https://img.shields.io/docker/pulls/itsrobintomar/exomeflow)](https://hub.docker.com/r/itsrobintomar/exomeflow) [![Docker Image Size](https://img.shields.io/docker/image-size/itsrobintomar/exomeflow/latest)](https://hub.docker.com/r/itsrobintomar/exomeflow) |
-| **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://pypi.org/project/exomeflow/) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo-blue)](https://pypi.org/project/exomeflow/) [![bio.tools](https://img.shields.io/badge/bio.tools-exomeflow-008080)](https://bio.tools/exomeflow) [![OpenEBench](https://img.shields.io/badge/OpenEBench-benchmarked-blue)](https://openebench.bsc.es/tool/biotools:exomeflow) |
+| **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://pypi.org/project/exomeflow/) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20155767-blue)](https://doi.org/10.5281/zenodo.20155767) [![bio.tools](https://img.shields.io/badge/bio.tools-exomeflow-008080)](https://bio.tools/exomeflow) [![OpenEBench](https://img.shields.io/badge/OpenEBench-benchmarked-blue)](https://openebench.bsc.es/tool/biotools:exomeflow) |
 | **Author** | [![AIIMS New Delhi](https://img.shields.io/badge/Institution-AIIMS%20New%20Delhi-red)](https://www.aiims.edu) [![ORCID](https://img.shields.io/badge/ORCID-0009--0002--9084--2019-brightgreen?logo=orcid)](https://orcid.org/0009-0002-9084-2019) |
 
 ---
@@ -489,10 +489,10 @@ MIT — see [pypi.org/project/exomeflow](https://pypi.org/project/exomeflow/) fo
 
 If you use ExomeFlow in your research, please cite:
 
-> Robin Kumar (ORCID: [0009-0002-9084-2019](https://orcid.org/0009-0002-9084-2019)).
-> *ExomeFlow: A Production-Quality Python Package for Automated
-> Whole Exome Sequencing Analysis*. AIIMS New Delhi, 2025.
-> https://pypi.org/project/exomeflow/
+> Robin Kumar. (2026). *ExomeFlow* (1.0.9). Zenodo.
+> https://doi.org/10.5281/zenodo.20155767
+>
+> ORCID: [0009-0002-9084-2019](https://orcid.org/0009-0002-9084-2019) · PyPI: [pypi.org/project/exomeflow](https://pypi.org/project/exomeflow/)
 
 ---
 
