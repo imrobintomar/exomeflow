@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exomeflow"
-version = "1.0.7"
+version = "1.0.8"
 description = "Production-quality Whole Exome Sequencing analysis pipeline"
 readme = "README.md"
 license = "MIT"
@@ -35,9 +35,7 @@ dependencies = [
 exomeflow = "exomeflow.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/imrobintomar/exomeflow"
-Repository = "https://github.com/imrobintomar/exomeflow.git"
-"Bug Tracker" = "https://github.com/imrobintomar/exomeflow/issues"
+Homepage = "https://pypi.org/project/exomeflow/"
 
 [tool.setuptools.packages.find]
 where = ["."]
