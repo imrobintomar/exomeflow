@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+message: "If you use ExomeFlow in your research, please cite it using this metadata."
+title: "ExomeFlow: A Production-Quality Python Package for Automated Whole Exome Sequencing Analysis"
+version: 1.0.9
+date-released: "2025-05-13"
+authors:
+  - family-names: Kumar
+    given-names: Robin
+    email: itsrobintomar@gmail.com
+    affiliation: "All India Institute of Medical Sciences (AIIMS), New Delhi, India"
+    orcid: "https://orcid.org/0009-0002-9084-2019"
+abstract: >
+  ExomeFlow is a Python package that provides a complete, automated Whole Exome
+  Sequencing (WES) analysis workflow from raw FASTQ files to functionally annotated
+  variants in a single reproducible CLI command. It implements GATK best-practice
+  variant calling (fastp → BWA MEM → BQSR → HaplotypeCaller → hard filtering) with
+  ANNOVAR functional annotation against 8 databases (refGene, ClinVar, gnomAD,
+  dbNSFP, COSMIC, ExAC, avSNP150, dbscSNV). Features include multi-sample cohort
+  processing, checkpointing, structured logging, and Docker/Singularity support.
+keywords:
+  - bioinformatics
+  - whole-exome-sequencing
+  - WES
+  - NGS
+  - genomics
+  - variant-calling
+  - GATK
+  - ANNOVAR
+  - Python
+  - pipeline
+license: MIT
+url: "https://pypi.org/project/exomeflow/"
+repository-code: "https://pypi.org/project/exomeflow/"
+identifiers:
+  - type: url
+    value: "https://pypi.org/project/exomeflow/"
+    description: PyPI package page
+  - type: url
+    value: "https://bio.tools/exomeflow"
+    description: bio.tools registry entry
+  - type: url
+    value: "https://hub.docker.com/r/itsrobintomar/exomeflow"
+    description: Docker Hub image
