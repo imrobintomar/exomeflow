@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Testing** | [![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/imrobintomar/exomeflow/actions) |
-| **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![PyPI Downloads](https://img.shields.io/pypi/dm/exomeflow)](https://pypi.org/project/exomeflow/) |
+| **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![PyPI Downloads](https://img.shields.io/pypi/dd/exomeflow)](https://pypi.org/project/exomeflow/) |
 | **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/imrobintomar/exomeflow/blob/main/LICENSE) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo-blue)](https://github.com/imrobintomar/exomeflow) |
 
 ---
@@ -30,6 +30,7 @@ checkpointing for resumable runs, structured logging, and parallel execution out
 - [What is it?](#what-is-it)
 - [Main Features](#main-features)
 - [Pipeline Workflow](#pipeline-workflow)
+- [Benchmarks](#benchmarks)
 - [Where to get it](#where-to-get-it)
 - [System Requirements](#system-requirements)
 - [Python Dependencies](#python-dependencies)
@@ -75,7 +76,7 @@ Here are the things ExomeFlow does well:
 
 ## Pipeline Workflow
 
-![ExomeFlow Pipeline Workflow](https://raw.githubusercontent.com/imrobintomar/exomeflow/main/workflow_figure.png)
+![ExomeFlow Pipeline Workflow](https://raw.githubusercontent.com/imrobintomar/exomeflow/refs/heads/main/workflow_figure.png)
 
 <details>
 <summary>Text version</summary>
@@ -136,6 +137,55 @@ Raw FASTQ
 ```
 
 </details>
+
+---
+
+## Benchmarks
+
+Benchmarked on **NA12878 (HG001)** whole-exome sequencing data (Agilent SureSelect V8 Clinical Exome, hg38).
+Accuracy evaluated against GIAB NISTv4.2.1 truth set restricted to Agilent V8 capture regions.
+
+### Performance
+
+| Metric | Value |
+|--------|-------|
+| Total runtime (12 steps) | 218.4 min |
+| Slowest step | BQSR (141.3 min) |
+| Threads | 24 |
+
+### Variant Quality (PASS variants)
+
+| Metric | Value | Expected range |
+|--------|-------|----------------|
+| SNPs called | 38,413 | — |
+| INDELs called | 5,971 | — |
+| Ts/Tv ratio | 2.58 | 2.0–3.3 ✓ |
+| Het/Hom ratio | 3.10 | 1.5–2.5 |
+| dbSNP concordance | 44.7% | — |
+
+### Accuracy (vs GIAB NISTv4.2.1, PASS-only)
+
+| Variant type | Precision | Recall | F1 score | TP | FP | FN |
+|---|---|---|---|---|---|---|
+| SNP | 99.41% | 64.67% | 78.36% | 7,787 | 46 | 4,255 |
+| INDEL | 89.38% | 66.14% | 76.02% | 623 | 74 | 319 |
+
+> Recall reflects PASS-only evaluation (conservative hard filters applied).
+> Running without `--pass-only` yields higher recall at the cost of precision.
+
+### Functional Annotation (NA12878)
+
+| Category | Count |
+|---|---|
+| Total annotated variants | 44,673 |
+| Exonic | 15,466 (34.6%) |
+| Nonsynonymous SNV | 6,957 |
+| Synonymous SNV | 8,158 |
+| Stopgain | 57 |
+| Frameshift indel | 224 |
+| Splicing | 62 |
+| ClinVar pathogenic/likely-pathogenic | 5 |
+| Novel (not in dbSNP avSNP150) | 658 |
 
 ---
 

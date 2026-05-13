@@ -18,3 +18,10 @@ benchmarks/
 # Bundled binaries — not redistributed (license)
 annovar/
 gatk-4.6.2.0/
+
+# GIAB truth files and derived BEDs — too large for GitHub
+HG001_*.vcf.gz
+HG001_*.vcf.gz.tbi
+HG001_*.bed
+*_exome_confident.bed
+*.sdf/
