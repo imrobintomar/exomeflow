@@ -7,7 +7,7 @@
 
 **A production-quality Python pipeline for Whole Exome Sequencing analysis.**
 
-| | |
+
 |---|---|
 | **CI** | [![CI](https://github.com/imrobintomar/exomeflow/actions/workflows/ci.yml/badge.svg)](https://github.com/imrobintomar/exomeflow/actions/workflows/ci.yml) [![Platform](https://img.shields.io/badge/platform-linux--64-lightgrey)](https://pypi.org/project/exomeflow/) |
 | **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![Downloads](https://static.pepy.tech/badge/exomeflow)](https://pepy.tech/project/exomeflow) [![Wheel](https://img.shields.io/pypi/wheel/exomeflow)](https://pypi.org/project/exomeflow/) [![PyPI Status](https://img.shields.io/pypi/status/exomeflow)](https://pypi.org/project/exomeflow/) |
@@ -579,4 +579,4 @@ For usage questions and bug reports, contact:
 
 
 ---
-Made with ❤️ ||  Dr Prabudh Goel lab, AIIMS New Delhi , India  
+**Made with ❤️ ||  Dr Prabudh Goel lab, AIIMS New Delhi , India**
