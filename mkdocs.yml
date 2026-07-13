@@ -1,0 +1,58 @@
+site_name: ExomeFlow
+site_description: Production-quality Whole Exome Sequencing analysis pipeline
+site_url: https://imrobintomar.github.io/exomeflow/
+repo_url: https://github.com/imrobintomar/exomeflow
+repo_name: imrobintomar/exomeflow
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/ExomeFlow_Icon.png
+  favicon: assets/ExomeFlow_Icon.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - CLI Reference: usage.md
+  - Modes & Options: modes.md
+  - Architecture: architecture.md
+  - Output Files: output-files.md
+  - Real-World Example — NA12878: example-na12878.md
+  - Troubleshooting: troubleshooting.md
+  - Changelog: changelog.md
