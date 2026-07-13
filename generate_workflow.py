@@ -6,8 +6,7 @@ Output: workflow_figure.png + workflow_figure.svg
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+from matplotlib.patches import FancyBboxPatch
 
 # ── Colours (matched to reference image) ────────────────────────────────────
 C_FASTP   = "#F4845F"   # coral/salmon
@@ -48,7 +47,6 @@ def box(ax, cx, y, w, h, color, title, lines, radius=0.12):
     ax.add_patch(rect)
 
     # Title
-    n_lines = len(lines)
     title_y = y + h - 0.165
     ax.text(cx, title_y, title,
             ha="center", va="center", fontsize=8.5, fontweight="bold",

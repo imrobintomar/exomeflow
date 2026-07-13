@@ -15,8 +15,10 @@ What happens:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import zipfile
@@ -26,7 +28,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from exomeflow.config import ANNOVAR_BUILDVER
+from exomeflow.utils import _parse_version, _version_ok
+
 console = Console()
+logger = logging.getLogger("exomeflow")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -37,33 +43,65 @@ GATK_URL = (
     f"https://github.com/broadinstitute/gatk/releases/download/"
     f"{GATK_VERSION}/gatk-{GATK_VERSION}.zip"
 )
+GATK_CACHE_DIR = Path.home() / ".exomeflow" / "gatk"
 
-# Broad Institute GATK resource bundle — publicly accessible (no auth needed)
-_GCS_BASE   = "gs://gcp-public-data--broad-references/hg38/v0"
-_HTTPS_BASE = "https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0"
+# Broad Institute GATK resource bundles — publicly accessible (no auth needed)
+# NOTE: hg19/GRCh37 filenames below follow the Broad legacy b37 bundle layout
+# as published at implementation time; verify against the live bucket listing
+# (`gsutil ls gs://gcp-public-data--broad-references/hg19/v0/`) before relying
+# on them for a production GRCh37 run — flagged as an open item in the V2 plan.
+_GCS_BASE_BY_BUILD: dict[str, str] = {
+    "hg38":   "gs://gcp-public-data--broad-references/hg38/v0",
+    "GRCh37": "gs://gcp-public-data--broad-references/hg19/v0",
+}
+_HTTPS_BASE_BY_BUILD: dict[str, str] = {
+    "hg38":   "https://storage.googleapis.com/gcp-public-data--broad-references/hg38/v0",
+    "GRCh37": "https://storage.googleapis.com/gcp-public-data--broad-references/hg19/v0",
+}
 
-REFERENCE_FILES: list[tuple[str, str, int]] = [
-    # (filename, description, approx_size_MB)
-    # Core FASTA + pre-built indexes (skip `bwa index` — already in bucket)
-    ("Homo_sapiens_assembly38.fasta",                       "hg38 reference genome FASTA",           3_100),
-    ("Homo_sapiens_assembly38.fasta.fai",                   "hg38 FASTA index (.fai)",                   1),
-    ("Homo_sapiens_assembly38.dict",                        "hg38 sequence dictionary",                  1),
-    ("Homo_sapiens_assembly38.fasta.bwt",                   "BWA index (.bwt)",                        800),
-    ("Homo_sapiens_assembly38.fasta.ann",                   "BWA index (.ann)",                          1),
-    ("Homo_sapiens_assembly38.fasta.amb",                   "BWA index (.amb)",                          1),
-    ("Homo_sapiens_assembly38.fasta.pac",                   "BWA index (.pac)",                        200),
-    ("Homo_sapiens_assembly38.fasta.sa",                    "BWA index (.sa)",                         400),
-    # dbSNP (correct filename in Broad bundle is dbsnp138, not dbsnp_146)
-    ("Homo_sapiens_assembly38.dbsnp138.vcf.gz",             "dbSNP 138 VCF (bgzipped)",              9_500),
-    ("Homo_sapiens_assembly38.dbsnp138.vcf.gz.tbi",         "dbSNP 138 tabix index",                     3),
-    # BQSR known sites
-    ("Mills_and_1000G_gold_standard.indels.hg38.vcf.gz",    "Mills + 1000G gold standard indels",      130),
-    ("Mills_and_1000G_gold_standard.indels.hg38.vcf.gz.tbi","Mills indels tabix index",                  1),
-    ("Homo_sapiens_assembly38.known_indels.vcf.gz",         "Known indels VCF",                         80),
-    ("Homo_sapiens_assembly38.known_indels.vcf.gz.tbi",     "Known indels tabix index",                  1),
-]
+REFERENCE_FILES_BY_BUILD: dict[str, list[tuple[str, str, int]]] = {
+    "hg38": [
+        # (filename, description, approx_size_MB)
+        # Core FASTA + pre-built indexes (skip `bwa index` — already in bucket)
+        ("Homo_sapiens_assembly38.fasta",                       "hg38 reference genome FASTA",           3_100),
+        ("Homo_sapiens_assembly38.fasta.fai",                   "hg38 FASTA index (.fai)",                   1),
+        ("Homo_sapiens_assembly38.dict",                        "hg38 sequence dictionary",                  1),
+        ("Homo_sapiens_assembly38.fasta.bwt",                   "BWA index (.bwt)",                        800),
+        ("Homo_sapiens_assembly38.fasta.ann",                   "BWA index (.ann)",                          1),
+        ("Homo_sapiens_assembly38.fasta.amb",                   "BWA index (.amb)",                          1),
+        ("Homo_sapiens_assembly38.fasta.pac",                   "BWA index (.pac)",                        200),
+        ("Homo_sapiens_assembly38.fasta.sa",                    "BWA index (.sa)",                         400),
+        # dbSNP (correct filename in Broad bundle is dbsnp138, not dbsnp_146)
+        ("Homo_sapiens_assembly38.dbsnp138.vcf.gz",             "dbSNP 138 VCF (bgzipped)",              9_500),
+        ("Homo_sapiens_assembly38.dbsnp138.vcf.gz.tbi",         "dbSNP 138 tabix index",                     3),
+        # BQSR known sites
+        ("Mills_and_1000G_gold_standard.indels.hg38.vcf.gz",    "Mills + 1000G gold standard indels",      130),
+        ("Mills_and_1000G_gold_standard.indels.hg38.vcf.gz.tbi","Mills indels tabix index",                  1),
+        ("Homo_sapiens_assembly38.known_indels.vcf.gz",         "Known indels VCF",                         80),
+        ("Homo_sapiens_assembly38.known_indels.vcf.gz.tbi",     "Known indels tabix index",                  1),
+    ],
+    "GRCh37": [
+        ("Homo_sapiens_assembly19.fasta",                       "GRCh37/b37 reference genome FASTA",     3_000),
+        ("Homo_sapiens_assembly19.fasta.fai",                   "GRCh37 FASTA index (.fai)",                 1),
+        ("Homo_sapiens_assembly19.dict",                        "GRCh37 sequence dictionary",                1),
+        ("Homo_sapiens_assembly19.fasta.bwt",                   "BWA index (.bwt)",                        800),
+        ("Homo_sapiens_assembly19.fasta.ann",                   "BWA index (.ann)",                          1),
+        ("Homo_sapiens_assembly19.fasta.amb",                   "BWA index (.amb)",                          1),
+        ("Homo_sapiens_assembly19.fasta.pac",                   "BWA index (.pac)",                        200),
+        ("Homo_sapiens_assembly19.fasta.sa",                    "BWA index (.sa)",                         400),
+        ("dbsnp_138.b37.vcf.gz",                                "dbSNP 138 VCF (bgzipped)",              9_000),
+        ("dbsnp_138.b37.vcf.gz.tbi",                            "dbSNP 138 tabix index",                     3),
+        ("Mills_and_1000G_gold_standard.indels.b37.vcf.gz",     "Mills + 1000G gold standard indels",      130),
+        ("Mills_and_1000G_gold_standard.indels.b37.vcf.gz.tbi", "Mills indels tabix index",                  1),
+        # Verified against the live bucket: no bgzipped "1000G_phase1.indels"
+        # file exists for b37 — this is the actual known-indels file Broad
+        # publishes (plain VCF + .idx, not bgzip+tbi like the other builds).
+        ("Homo_sapiens_assembly19.known_indels.vcf",            "Known indels VCF",                         80),
+        ("Homo_sapiens_assembly19.known_indels.vcf.idx",        "Known indels index",                        1),
+    ],
+}
 
-# Alternate filenames users may already have on disk
+# Alternate filenames users may already have on disk (checked for both builds)
 _REF_ALTERNATES: dict[str, list[str]] = {
     "Homo_sapiens_assembly38.fasta": [
         "hg38.fa", "hg38.fasta", "GRCh38.fa", "GRCh38.fasta", "hg38.p14.fa",
@@ -78,19 +116,50 @@ _REF_ALTERNATES: dict[str, list[str]] = {
     "Homo_sapiens_assembly38.known_indels.vcf.gz": [
         "known_indels.vcf.gz",
     ],
+    "Homo_sapiens_assembly19.fasta": [
+        "hg19.fa", "hg19.fasta", "GRCh37.fa", "GRCh37.fasta", "human_g1k_v37.fasta",
+    ],
+    "dbsnp_138.b37.vcf.gz": [
+        "dbsnp.vcf.gz", "dbsnp_138.hg19.vcf.gz",
+    ],
+    "Mills_and_1000G_gold_standard.indels.b37.vcf.gz": [
+        "mills.vcf.gz", "mills_indels.vcf.gz",
+    ],
+    "Homo_sapiens_assembly19.known_indels.vcf": [
+        "known_indels.vcf", "known_indels.vcf.gz",
+    ],
 }
 
-ANNOVAR_DATABASES: list[tuple[str, str, int]] = [
-    # (db_name, description, approx_size_MB)
-    ("refGene",            "Gene annotation (RefSeq)",               80),
-    ("avsnp150",           "dbSNP 150 with allele frequencies",  10_000),
-    ("clinvar_20240416",   "ClinVar clinical significance",          120),
-    ("gnomad41_exome",     "gnomAD v4.1 exome allele frequencies", 8_000),
-    ("gnomad41_genome",    "gnomAD v4.1 genome allele frequencies",30_000),
-    ("dbnsfp47a",          "dbNSFP 4.7a functional predictions",  50_000),
-    ("cosmic84_coding",    "COSMIC v84 somatic mutations",           500),
-    ("exac03",             "ExAC 0.3 allele frequencies",          1_200),
-]
+# Verified against ANNOVAR's own `-webfrom annovar` mirror listing
+# (hg38_avdblist.txt / hg19_avdblist.txt) at implementation time — every
+# entry here is confirmed actually downloadable through
+# `_download_annovar_db`'s mechanism, and matches config.py's
+# ANNOVAR_PROTOCOLS_BY_BUILD exactly (db names must stay in sync).
+# COSMIC is deliberately excluded: it requires separate registered download
+# and was never obtainable through this mirror.
+ANNOVAR_DATABASES_BY_BUILD: dict[str, list[tuple[str, str, int]]] = {
+    "hg38": [
+        # (db_name, description, approx_size_MB)
+        ("refGene",            "Gene annotation (RefSeq)",               80),
+        ("avsnp150",           "dbSNP 150 with allele frequencies",  10_000),
+        ("clinvar_20240611",   "ClinVar clinical significance",          120),
+        ("gnomad41_exome",     "gnomAD v4.1 exome allele frequencies", 8_000),
+        ("gnomad41_genome",    "gnomAD v4.1 genome allele frequencies",30_000),
+        ("dbnsfp47a",          "dbNSFP 4.7a functional predictions",  50_000),
+        ("exac03",             "ExAC 0.3 allele frequencies",          1_200),
+    ],
+    "GRCh37": [
+        # gnomAD v4.1 was never released for hg19/GRCh37 — v2.1.1 is the
+        # newest gnomAD build available there. Everything else matches hg38.
+        ("refGene",            "Gene annotation (RefSeq)",               80),
+        ("avsnp150",           "dbSNP 150 with allele frequencies",  10_000),
+        ("clinvar_20240611",   "ClinVar clinical significance",          120),
+        ("gnomad211_exome",    "gnomAD v2.1.1 exome allele frequencies", 500),
+        ("gnomad211_genome",   "gnomAD v2.1.1 genome allele frequencies",5_500),
+        ("dbnsfp47a",          "dbNSFP 4.7a functional predictions",  50_000),
+        ("exac03",             "ExAC 0.3 allele frequencies",          1_200),
+    ],
+}
 
 _SYSTEM_TOOLS: list[tuple[str, str]] = [
     # (binary_name, conda_spec)
@@ -101,6 +170,23 @@ _SYSTEM_TOOLS: list[tuple[str, str]] = [
 ]
 
 CONFIG_PATH = Path.home() / ".exomeflow" / "config.json"
+
+# Canonical (reference, dbsnp, mills, known_indels) filenames per build —
+# must match the first/dbSNP/Mills/known-indels entries in REFERENCE_FILES_BY_BUILD.
+_CANONICAL_REF_NAMES: dict[str, dict[str, str]] = {
+    "hg38": {
+        "reference": "Homo_sapiens_assembly38.fasta",
+        "dbsnp": "Homo_sapiens_assembly38.dbsnp138.vcf.gz",
+        "mills": "Mills_and_1000G_gold_standard.indels.hg38.vcf.gz",
+        "known_indels": "Homo_sapiens_assembly38.known_indels.vcf.gz",
+    },
+    "GRCh37": {
+        "reference": "Homo_sapiens_assembly19.fasta",
+        "dbsnp": "dbsnp_138.b37.vcf.gz",
+        "mills": "Mills_and_1000G_gold_standard.indels.b37.vcf.gz",
+        "known_indels": "Homo_sapiens_assembly19.known_indels.vcf",
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Config file
@@ -148,11 +234,51 @@ def detect_gatk_bin() -> Path | None:
         Path.home() / f"gatk-{GATK_VERSION}" / "gatk",
         Path("/opt/gatk/gatk"),
         Path(f"/opt/gatk-{GATK_VERSION}/gatk"),
+        GATK_CACHE_DIR / f"gatk-{GATK_VERSION}" / "gatk",
     ]:
         if candidate.is_file():
             return candidate
 
     return None
+
+
+def _step_gatk_download() -> Path | None:
+    """
+    Auto-download and extract GATK into ~/.exomeflow/gatk/ if not found
+    anywhere. Needs Java on PATH to actually run afterward — GATK's zip
+    bundles jars + a wrapper script, not a JVM, which pip cannot provision.
+    """
+    logger.info("Downloading GATK %s (~600 MB) ...", GATK_VERSION)
+    GATK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    zip_path = GATK_CACHE_DIR / f"gatk-{GATK_VERSION}.zip"
+
+    if not _download_file(GATK_URL, zip_path):
+        logger.warning("GATK download failed — install manually: %s", GATK_URL)
+        return None
+
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(GATK_CACHE_DIR)
+    except Exception as exc:
+        logger.warning("GATK archive extraction failed: %s", exc)
+        return None
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+    gatk_bin = GATK_CACHE_DIR / f"gatk-{GATK_VERSION}" / "gatk"
+    if not gatk_bin.is_file():
+        logger.warning("GATK extracted but 'gatk' script not found at %s", gatk_bin)
+        return None
+    gatk_bin.chmod(gatk_bin.stat().st_mode | 0o111)
+
+    if not shutil.which("java"):
+        logger.warning(
+            "GATK downloaded, but no 'java' on PATH — GATK needs Java 17+ to "
+            "run. Install a JDK (e.g. `conda install -c conda-forge openjdk=17`)."
+        )
+
+    logger.log(25, "GATK installed: %s", gatk_bin)
+    return gatk_bin
 
 
 def detect_annovar_bin() -> Path | None:
@@ -173,21 +299,88 @@ def detect_annovar_bin() -> Path | None:
     return None
 
 
+def detect_annovar_humandb(buildver: str = "hg38", timeout_s: int = 30) -> Path | None:
+    """
+    Look for an existing ANNOVAR humandb directory anywhere on the system —
+    databases are 10s-100s of GB, so reusing one already downloaded (e.g. by
+    another tool, or a prior ExomeFlow install) beats re-downloading blindly.
+
+    Fast path: a short list of common locations. Fallback: a bounded `find`
+    across mounted filesystems (maxdepth-limited, so it stays fast even on
+    multi-TB drives) — skipped entirely if `find` isn't available.
+    """
+    fast_candidates = [
+        Path.home() / ".exomeflow" / "annovar" / "humandb",
+        Path(__file__).parent.parent / "annovar" / "humandb",
+        Path.cwd() / "annovar" / "humandb",
+        Path("/opt/annovar/humandb"),
+        Path("/usr/local/annovar/humandb"),
+    ]
+    for p in fast_candidates:
+        if (p / f"{buildver}_refGene.txt").exists():
+            return p
+
+    if not shutil.which("find"):
+        return None
+    roots = [str(p) for p in (Path("/media"), Path("/mnt"), Path("/data"), Path.home()) if p.is_dir()]
+    if not roots:
+        return None
+    try:
+        result = subprocess.run(
+            ["find", *roots, "-maxdepth", "6", "-iname", f"{buildver}_refGene.txt"],
+            capture_output=True, text=True, timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    hit = next((line for line in result.stdout.splitlines() if line), None)
+    return Path(hit).parent if hit else None
+
+
 # ---------------------------------------------------------------------------
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-def _run_silent(cmd: list[str]) -> bool:
-    result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return result.returncode == 0
+def _run_bounded(cmd: list[str], timeout_s: int, *, visible: bool) -> bool:
+    """
+    Run *cmd* with a hard wall-clock timeout, killing the whole process
+    group (not just the direct child) if it's exceeded.
+
+    Found via audit: a plain subprocess.run(timeout=...) only kills the
+    direct child — several commands here (perl's annotate_variation.pl,
+    git) can themselves spawn a grandchild download process that survives
+    the parent's death and keeps running/consuming bandwidth forever. The
+    same class of bug was already found and fixed for InterVar
+    (acmg_classification.py); this generalizes that fix to every other
+    subprocess call in this module that was still unguarded.
+    """
+    kwargs = {} if visible else {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    proc = subprocess.Popen(cmd, text=True, start_new_session=True, **kwargs)
+    try:
+        proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+        logger.warning("Command timed out after %ds and was killed: %s", timeout_s, " ".join(cmd))
+        return False
+    return proc.returncode == 0
 
 
-def _run_visible(cmd: list[str]) -> bool:
-    result = subprocess.run(cmd, text=True)
-    return result.returncode == 0
+def _run_silent(cmd: list[str], timeout_s: int = 900) -> bool:
+    return _run_bounded(cmd, timeout_s, visible=False)
 
 
-def _ask(prompt: str, default_yes: bool = False) -> bool:
+def _run_visible(cmd: list[str], timeout_s: int = 21600) -> bool:
+    return _run_bounded(cmd, timeout_s, visible=True)
+
+
+def _ask(prompt: str, default_yes: bool = False, assume_yes: bool = False) -> bool:
+    if assume_yes or not sys.stdin.isatty():
+        # --yes, or no interactive terminal to prompt on at all (background/CI
+        # runs) — fall back to the default instead of hanging on input().
+        return True if assume_yes else default_yes
     suffix = "[Y/n]" if default_yes else "[y/N]"
     try:
         ans = input(f"  {prompt} {suffix}: ").strip().lower()
@@ -210,10 +403,19 @@ def _ask_path(prompt: str) -> Path | None:
 
 
 def _download_file(url: str, dest: Path) -> bool:
-    """Download with wget (resume-capable) or curl."""
+    """
+    Download with wget (resume-capable) or curl. These are legitimately
+    multi-hour operations for a ~3GB reference FASTA, so no fixed outer
+    timeout is right here — instead, use each tool's own stall-detection
+    (abort if the *transfer rate*, not the whole operation, stalls), plus a
+    generous 6-hour outer safety net via _run_visible's default.
+    """
     for tool, cmd in [
-        ("wget",  ["wget", "-c", "-q", "--show-progress", url, "-O", str(dest)]),
-        ("curl",  ["curl", "-L", "--progress-bar", "-C", "-", url, "-o", str(dest)]),
+        ("wget",  ["wget", "-c", "-q", "--show-progress", "--timeout=60", "--tries=3",
+                    url, "-O", str(dest)]),
+        ("curl",  ["curl", "-L", "--progress-bar", "-C", "-",
+                    "--speed-time", "60", "--speed-limit", "1024",
+                    url, "-o", str(dest)]),
     ]:
         if shutil.which(tool):
             return _run_visible(cmd)
@@ -222,8 +424,7 @@ def _download_file(url: str, dest: Path) -> bool:
 
 
 def _gsutil_cp(gcs_path: str, dest: Path) -> bool:
-    result = subprocess.run(["gsutil", "-m", "cp", gcs_path, str(dest)], text=True)
-    return result.returncode == 0
+    return _run_visible(["gsutil", "-m", "cp", gcs_path, str(dest)])
 
 
 # ---------------------------------------------------------------------------
@@ -237,8 +438,8 @@ def _step_bundled_tools() -> tuple[Path | None, Path | None]:
     """
     console.print(Panel("[bold]Step 1 — Bundled Tools[/bold]", style="blue"))
 
-    # GATK
-    gatk = detect_gatk_bin()
+    # GATK — auto-download into ~/.exomeflow/gatk/ if not found anywhere
+    gatk = detect_gatk_bin() or _step_gatk_download()
     if gatk:
         try:
             gatk.chmod(gatk.stat().st_mode | 0o111)
@@ -250,7 +451,7 @@ def _step_bundled_tools() -> tuple[Path | None, Path | None]:
         console.print(f"  [green]✔[/green]  GATK {GATK_VERSION}: [cyan]{gatk}[/cyan]")
     else:
         console.print(
-            f"  [red]✘[/red]  GATK not found.\n"
+            f"  [red]✘[/red]  GATK auto-download failed.\n"
             f"  Place gatk-{GATK_VERSION}/ inside the ExomeFlow folder or download from:\n"
             f"  [cyan]{GATK_URL}[/cyan]"
         )
@@ -273,8 +474,12 @@ def _step_bundled_tools() -> tuple[Path | None, Path | None]:
 # Step 2 — System tools
 # ---------------------------------------------------------------------------
 
-def _step_system_tools() -> list[str]:
-    """Install missing system tools via conda. Returns list of failures."""
+def _step_system_tools(outdated: frozenset[str] = frozenset()) -> list[str]:
+    """
+    Install missing system tools via conda; force-upgrade any already on
+    PATH but below the required minimum version (*outdated*). Returns list
+    of failures.
+    """
     console.print(Panel("[bold]Step 2 — System Tools[/bold]", style="blue"))
     failures = []
 
@@ -287,10 +492,11 @@ def _step_system_tools() -> list[str]:
         return ["conda not found — install tools manually"]
 
     for binary, spec in _SYSTEM_TOOLS:
-        if shutil.which(binary):
+        if shutil.which(binary) and binary not in outdated:
             console.print(f"  [green]✔[/green]  {binary} already installed")
             continue
-        console.print(f"  [yellow]→[/yellow]  Installing {binary} ...")
+        verb = "Upgrading" if binary in outdated else "Installing"
+        console.print(f"  [yellow]→[/yellow]  {verb} {binary} ...")
         channel, pkg = spec.split("::")
         ok = _run_silent([conda, "install", "-y", "-c", channel, pkg])
         if ok:
@@ -306,10 +512,10 @@ def _step_system_tools() -> list[str]:
 # Step 3 — Reference files
 # ---------------------------------------------------------------------------
 
-def _scan_refs(directory: Path) -> dict[str, Path]:
+def _scan_refs(directory: Path, genome_build: str = "hg38") -> dict[str, Path]:
     """Return {canonical_name: found_path} for all reference files found in directory."""
     found: dict[str, Path] = {}
-    for filename, _, _ in REFERENCE_FILES:
+    for filename, _, _ in REFERENCE_FILES_BY_BUILD[genome_build]:
         p = directory / filename
         if p.exists():
             found[filename] = p
@@ -322,38 +528,44 @@ def _scan_refs(directory: Path) -> dict[str, Path]:
     return found
 
 
-def _step_reference_files(refs_dir: Path, existing_refs_dir: Path | None) -> tuple[Path | None, list[str]]:
+def _step_reference_files(
+    refs_dir: Path, existing_refs_dir: Path | None, genome_build: str = "hg38",
+    assume_yes: bool = False,
+) -> tuple[Path | None, list[str]]:
     """
-    Locate or download hg38 reference files.
+    Locate or download reference files for *genome_build*.
     Returns (resolved_refs_dir, failures).
     """
-    console.print(Panel("[bold]Step 3 — Reference Genome (hg38)[/bold]", style="blue"))
+    reference_files = REFERENCE_FILES_BY_BUILD[genome_build]
+    console.print(Panel(f"[bold]Step 3 — Reference Genome ({genome_build})[/bold]", style="blue"))
     failures: list[str] = []
 
     # If user passed --existing-refs, check there first
     if existing_refs_dir:
-        found = _scan_refs(existing_refs_dir)
+        found = _scan_refs(existing_refs_dir, genome_build)
         if found:
-            console.print(f"  [green]✔[/green]  Found {len(found)}/{len(REFERENCE_FILES)} reference files in [cyan]{existing_refs_dir}[/cyan]")
+            console.print(f"  [green]✔[/green]  Found {len(found)}/{len(reference_files)} reference files in [cyan]{existing_refs_dir}[/cyan]")
             return existing_refs_dir, []
         console.print(f"  [yellow]⚠[/yellow]  No reference files found in {existing_refs_dir}")
 
     # Check default location
-    found = _scan_refs(refs_dir)
+    found = _scan_refs(refs_dir, genome_build)
     if len(found) >= 4:  # the 4 main files (fasta + 3 VCFs)
         console.print(f"  [green]✔[/green]  Reference files already present in [cyan]{refs_dir}[/cyan]")
         return refs_dir, []
 
     # Ask user
     console.print(
-        "  hg38 reference files are required (~13 GB total).\n"
+        f"  {genome_build} reference files are required (~13 GB total).\n"
         "  These include: reference FASTA, dbSNP, Mills indels, known indels."
     )
 
-    if _ask("Do you already have hg38 reference files on this machine?"):
+    # --yes never answers this one: it needs a manually-entered path, so with
+    # no path to give it, "no, go download instead" is the only sane default.
+    if not assume_yes and _ask(f"Do you already have {genome_build} reference files on this machine?"):
         user_path = _ask_path("Enter the path to the directory containing your reference files")
         if user_path:
-            found = _scan_refs(user_path)
+            found = _scan_refs(user_path, genome_build)
             if found:
                 console.print(f"  [green]✔[/green]  Found {len(found)} reference file(s) in [cyan]{user_path}[/cyan]")
                 return user_path, []
@@ -367,8 +579,11 @@ def _step_reference_files(refs_dir: Path, existing_refs_dir: Path | None) -> tup
             return None, failures
 
     # Offer download
-    total_mb = sum(s for _, _, s in REFERENCE_FILES)
-    if not _ask(f"Download reference files to {refs_dir}? (~{total_mb // 1024} GB, may take hours)", default_yes=True):
+    total_mb = sum(s for _, _, s in reference_files)
+    if not _ask(
+        f"Download reference files to {refs_dir}? (~{total_mb // 1024} GB, may take hours)",
+        default_yes=True, assume_yes=assume_yes,
+    ):
         failures.append("Reference files not downloaded — required for pipeline")
         return None, failures
 
@@ -380,16 +595,19 @@ def _step_reference_files(refs_dir: Path, existing_refs_dir: Path | None) -> tup
             "For faster downloads: conda install -c conda-forge google-cloud-sdk[/dim]"
         )
 
-    for filename, description, size_mb in REFERENCE_FILES:
+    gcs_base = _GCS_BASE_BY_BUILD[genome_build]
+    https_base = _HTTPS_BASE_BY_BUILD[genome_build]
+
+    for filename, description, size_mb in reference_files:
         dest = refs_dir / filename
         if dest.exists():
             console.print(f"  [green]✔[/green]  {filename} already present")
             continue
         console.print(f"  [cyan]→[/cyan]  Downloading {filename} ({description}, ~{size_mb:,} MB) ...")
         if use_gsutil:
-            ok = _gsutil_cp(f"{_GCS_BASE}/{filename}", dest)
+            ok = _gsutil_cp(f"{gcs_base}/{filename}", dest)
         else:
-            ok = _download_file(f"{_HTTPS_BASE}/{filename}", dest)
+            ok = _download_file(f"{https_base}/{filename}", dest)
         if ok:
             console.print(f"  [green]✔[/green]  {filename}")
         else:
@@ -403,13 +621,35 @@ def _step_reference_files(refs_dir: Path, existing_refs_dir: Path | None) -> tup
 # Step 4 — ANNOVAR databases
 # ---------------------------------------------------------------------------
 
-def _step_annovar_databases(annovar_bin: Path, default_db: Path) -> tuple[Path | None, list[str]]:
+def annovar_databases_complete(annovar_db: Path, genome_build: str = "hg38") -> tuple[bool, list[str]]:
     """
-    Locate or download ANNOVAR databases.
+    Check whether every database `cfg.annovar_protocols` actually needs is
+    present in *annovar_db* for *genome_build* — not just that the directory
+    exists. Returns (complete, missing_db_names).
+
+    Restored via audit: the steady-state pre-flight check had narrowed to a
+    bare directory-exists check, so a database deleted after initial setup
+    (or a build mismatch) went undetected until table_annovar.pl failed
+    hours into a run instead of being caught in seconds up front.
+    """
+    buildver = ANNOVAR_BUILDVER[genome_build]
+    required = ANNOVAR_DATABASES_BY_BUILD[genome_build]
+    missing = [d for d, _, _ in required if not (annovar_db / f"{buildver}_{d}.txt").exists()]
+    return not missing, missing
+
+
+def _step_annovar_databases(
+    annovar_bin: Path, default_db: Path, genome_build: str = "hg38",
+    assume_yes: bool = False,
+) -> tuple[Path | None, list[str]]:
+    """
+    Locate or download ANNOVAR databases for *genome_build* ("hg38" or "GRCh37").
     Returns (humandb_path, failures).
     """
     console.print(Panel("[bold]Step 4 — ANNOVAR Annotation Databases[/bold]", style="blue"))
     failures: list[str] = []
+    buildver = ANNOVAR_BUILDVER[genome_build]
+    required = ANNOVAR_DATABASES_BY_BUILD[genome_build]
 
     if not annovar_bin:
         console.print("  [yellow]⚠[/yellow]  ANNOVAR not detected — skipping database step.")
@@ -421,29 +661,42 @@ def _step_annovar_databases(annovar_bin: Path, default_db: Path) -> tuple[Path |
     # Check existing db in the annovar_bin/humandb location
     for candidate_db in [default_db, annovar_bin / "humandb"]:
         if candidate_db.exists():
-            existing = [d for d, _, _ in ANNOVAR_DATABASES
-                        if (candidate_db / f"hg38_{d}.txt").exists()]
+            existing = [d for d, _, _ in required
+                        if (candidate_db / f"{buildver}_{d}.txt").exists()]
             if existing:
                 console.print(
-                    f"  [green]✔[/green]  Found {len(existing)}/{len(ANNOVAR_DATABASES)} "
+                    f"  [green]✔[/green]  Found {len(existing)}/{len(required)} "
                     f"databases in [cyan]{candidate_db}[/cyan]"
                 )
                 return candidate_db, []
 
+    # System-wide lookup — these are 10s-100s of GB; check for an existing
+    # humandb elsewhere on disk before asking the user or downloading blind.
+    console.print("  [dim]Searching the system for an existing ANNOVAR humandb ...[/dim]")
+    found_db = detect_annovar_humandb(buildver)
+    if found_db:
+        existing = [d for d, _, _ in required
+                    if (found_db / f"{buildver}_{d}.txt").exists()]
+        console.print(
+            f"  [green]✔[/green]  Found {len(existing)}/{len(required)} "
+            f"databases in [cyan]{found_db}[/cyan] (auto-detected)"
+        )
+        return found_db, []
+
     # Ask user
-    total_gb = sum(s for _, _, s in ANNOVAR_DATABASES) // 1024
+    total_gb = sum(s for _, _, s in required) // 1024
     console.print(
         f"  ANNOVAR databases are required for variant annotation (~{total_gb} GB total).\n"
-        "  These include: refGene, ClinVar, gnomAD, dbNSFP, COSMIC, avSNP."
+        "  These include: refGene, ClinVar, gnomAD, dbNSFP, avSNP."
     )
 
-    if _ask("Do you already have an ANNOVAR humandb directory?"):
+    if not assume_yes and _ask("Do you already have an ANNOVAR humandb directory?"):
         user_path = _ask_path("Enter the path to your humandb directory")
         if user_path and user_path.is_dir():
-            existing = [d for d, _, _ in ANNOVAR_DATABASES
-                        if (user_path / f"hg38_{d}.txt").exists()]
+            existing = [d for d, _, _ in required
+                        if (user_path / f"{buildver}_{d}.txt").exists()]
             console.print(
-                f"  [green]✔[/green]  Found {len(existing)}/{len(ANNOVAR_DATABASES)} "
+                f"  [green]✔[/green]  Found {len(existing)}/{len(required)} "
                 f"databases in [cyan]{user_path}[/cyan]"
             )
             return user_path, []
@@ -454,24 +707,30 @@ def _step_annovar_databases(annovar_bin: Path, default_db: Path) -> tuple[Path |
 
     # Offer download
     db_dir = default_db
-    if not _ask(f"Download ANNOVAR databases to {db_dir}? (~{total_gb} GB)", default_yes=True):
+    if not _ask(
+        f"Download ANNOVAR databases to {db_dir}? (~{total_gb} GB)",
+        default_yes=True, assume_yes=assume_yes,
+    ):
         failures.append("ANNOVAR databases not downloaded — required for annotation")
         return None, failures
 
     db_dir.mkdir(parents=True, exist_ok=True)
 
-    for db_name, description, size_mb in ANNOVAR_DATABASES:
-        db_file = db_dir / f"hg38_{db_name}.txt"
+    for db_name, description, size_mb in required:
+        db_file = db_dir / f"{buildver}_{db_name}.txt"
         if db_file.exists():
             console.print(f"  [green]✔[/green]  {db_name} already present")
             continue
         console.print(f"  [cyan]→[/cyan]  Downloading {db_name} ({description}, ~{size_mb:,} MB) ...")
-        result = subprocess.run(
-            ["perl", str(annotate_pl), "-buildver", "hg38",
+        # 3h timeout: dbnsfp47a alone is ~50GB. Guards the same class of
+        # orphaned-grandchild-process bug already fixed for InterVar, since
+        # annotate_variation.pl -downdb can itself spawn a sub-downloader.
+        ok = _run_visible(
+            ["perl", str(annotate_pl), "-buildver", buildver,
              "-downdb", "-webfrom", "annovar", db_name, str(db_dir)],
-            text=True,
+            timeout_s=10800,
         )
-        if result.returncode == 0:
+        if ok:
             console.print(f"  [green]✔[/green]  {db_name}")
         else:
             console.print(f"  [red]✘[/red]  {db_name} download failed")
@@ -481,21 +740,126 @@ def _step_annovar_databases(annovar_bin: Path, default_db: Path) -> tuple[Path |
 
 
 # ---------------------------------------------------------------------------
+# Step 5 — InterVar (ACMG classification) + HPO gene-to-phenotype mapping
+# ---------------------------------------------------------------------------
+
+INTERVAR_URL = "https://github.com/WGLab/InterVar/archive/refs/heads/master.zip"
+INTERVAR_DIR = Path.home() / ".exomeflow" / "intervar"
+
+
+def detect_intervar_bin() -> Path | None:
+    """Return the directory containing Intervar.py — bundled folder first, then cache."""
+    candidates = [
+        Path(__file__).parent.parent / "intervar",
+        Path(__file__).parent.parent / "InterVar",
+        Path.cwd() / "intervar",
+        INTERVAR_DIR,
+        INTERVAR_DIR / "InterVar-master",
+    ]
+    for p in candidates:
+        if (p / "Intervar.py").exists():
+            return p
+    return None
+
+
+def _step_intervar(annovar_bin: Path | None) -> Path | None:
+    """Auto-clone InterVar and download its database if not already present."""
+    found = detect_intervar_bin()
+    if found:
+        return found
+
+    if not shutil.which("git"):
+        logger.warning("git not found — cannot auto-install InterVar for ACMG classification.")
+        return None
+
+    logger.info("Installing InterVar (ACMG classification) into %s ...", INTERVAR_DIR)
+    INTERVAR_DIR.parent.mkdir(parents=True, exist_ok=True)
+    ok = _run_silent(
+        ["git", "clone", "--depth", "1",
+         "https://github.com/WGLab/InterVar.git", str(INTERVAR_DIR)]
+    )
+    if not ok or not (INTERVAR_DIR / "Intervar.py").exists():
+        logger.warning("InterVar auto-install failed — ACMG classification will be skipped.")
+        return None
+
+    logger.log(25, "InterVar installed: %s", INTERVAR_DIR)
+    return INTERVAR_DIR
+
+
+def _step_hpo_mapping() -> bool:
+    """Auto-download the HPO gene-to-phenotype mapping used for HPO enrichment."""
+    from exomeflow.hpo_annotation import HPO_CACHE_DIR, HPO_DOWNLOAD_URL, HPO_MAPPING_FILE
+
+    if HPO_MAPPING_FILE.exists():
+        return True
+    HPO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("Downloading HPO gene-to-phenotype mapping ...")
+    ok = _download_file(HPO_DOWNLOAD_URL, HPO_MAPPING_FILE)
+    if not ok:
+        logger.warning("HPO mapping download failed — HPO enrichment will be skipped.")
+    return ok
+
+
+def _step_multiqc() -> bool:
+    """Auto-pip-install multiqc for the cohort rollup report."""
+    if shutil.which("multiqc"):
+        return True
+    logger.info("Installing multiqc via pip ...")
+    ok = _run_silent([sys.executable, "-m", "pip", "install", "multiqc"])
+    if not ok:
+        logger.warning("multiqc auto-install failed — MultiQC rollup will be skipped.")
+        return False
+    return True
+
+
+def _step_matplotlib() -> bool:
+    """Auto-pip-install matplotlib, only needed when --cnv is requested."""
+    try:
+        import matplotlib  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    logger.info("Installing matplotlib via pip (required for --cnv plots) ...")
+    ok = _run_silent([sys.executable, "-m", "pip", "install", "matplotlib>=3.7.0"])
+    if not ok:
+        logger.warning("matplotlib auto-install failed — CNV plotting may fail.")
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Pre-flight dependency check (called on every `exomeflow run`)
 # ---------------------------------------------------------------------------
 
-_TOOL_CHECKS: list[tuple[str, list[str], str]] = [
-    # (name, version_cmd, min_version_string)
-    ("bwa",      ["bwa"],                    "BWA aligner"),
-    ("samtools", ["samtools", "--version"],   "SAMtools"),
-    ("fastp",    ["fastp", "--version"],      "fastp QC"),
-    ("perl",     ["perl", "--version"],       "Perl interpreter"),
-    ("gatk",     ["gatk", "--version"],       "GATK 4"),
+_TOOL_CHECKS: list[tuple[str, list[str], str, str]] = [
+    # (name, version_cmd, label, min_version) — min_version restored via
+    # audit: this table used to only carry a description, and the check
+    # loop below had narrowed to presence-only, silently dropping the
+    # minimum-version enforcement the old (now-deleted) requirements
+    # checker used to do.
+    ("bwa",      ["bwa"],                    "BWA aligner",      "0.7.17"),
+    ("samtools", ["samtools", "--version"],   "SAMtools",         "1.13"),
+    ("fastp",    ["fastp", "--version"],      "fastp QC",         "0.20.1"),
+    ("perl",     ["perl", "--version"],       "Perl interpreter", "5.26"),
+    ("gatk",     ["gatk", "--version"],       "GATK 4",           "4.6.0"),
 ]
+
+
+def _tool_version_ok(version_cmd: list[str], min_version: str) -> tuple[bool, str]:
+    """Run *version_cmd* and check its output against *min_version*. Returns (ok, found_version_str)."""
+    try:
+        result = subprocess.run(
+            version_cmd, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False, "?"
+    found = _parse_version(result.stdout + result.stderr)
+    return _version_ok(found, min_version), ".".join(str(v) for v in found)
 
 _REF_KEYS: list[tuple[str, str]] = [
     # (config_key, label)
-    ("reference",    "Reference FASTA (hg38)"),
+    ("reference",    "Reference FASTA"),
     ("dbsnp",        "dbSNP VCF"),
     ("mills",        "Mills indels VCF"),
     ("known_indels", "Known indels VCF"),
@@ -507,18 +871,58 @@ _ANNOVAR_KEYS: list[tuple[str, str]] = [
 ]
 
 
-def check_and_fix_dependencies() -> dict:
+def _ask_genome_build(saved_build: str | None, assume_yes: bool) -> str:
+    """Resolve which genome build to use: saved config > explicit prompt > hg38 default."""
+    if saved_build in ("hg38", "GRCh37"):
+        return saved_build
+    if assume_yes or not sys.stdin.isatty():
+        return "hg38"
+    try:
+        ans = input("  Which genome build? [hg38/GRCh37] (default hg38): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return "hg38"
+    return "GRCh37" if ans.lower() in ("grch37", "hg19", "37") else "hg38"
+
+
+def check_and_fix_dependencies(
+    genome_build: str | None = None, call_cnv: bool = False, assume_yes: bool = False
+) -> dict:
     """
     Run a pre-flight check before every pipeline run.
 
     Prints a status table showing every dependency.
     If anything is missing: runs the relevant fix step automatically.
     Returns the final config dict (with all paths resolved) on success.
-    Raises SystemExit(1) if any required dependency cannot be fixed.
+    Raises SystemExit(1) if any required *hard* dependency cannot be fixed.
+    MultiQC / HPO / InterVar are best-effort and never raise — see Phase 3/7
+    of the V2 plan: their absence degrades output, it doesn't block the run.
+
+    *genome_build*: None means "not explicitly set by the user on the CLI" —
+    resolved from saved config if present, otherwise prompted for (or
+    defaulted to hg38 under --yes/non-interactive).
     """
     from rich.panel import Panel
 
+    # Python version floor — dropped silently when the old requirements
+    # checker was deleted; restored here. Bug found via audit.
+    if sys.version_info[:2] < (3, 9):
+        py_ver = ".".join(str(v) for v in sys.version_info[:3])
+        console.print(
+            f"  [red]✘[/red]  Python {py_ver} < 3.9 — ExomeFlow requires Python "
+            f"3.9 or newer. Upgrade: conda install python>=3.9"
+        )
+        raise SystemExit(1)
+
     cfg = load_config()
+    saved_build = cfg.get("genome_build")
+    genome_build = _ask_genome_build(genome_build or saved_build, assume_yes)
+    cfg["genome_build"] = genome_build
+    # Switching build on an already-configured install: the saved reference/
+    # ANNOVAR paths point at the *old* build's files, which still exist on
+    # disk (a plain .exists() check can't tell), so a naive check would
+    # silently keep running the old build's refs against the new build's
+    # buildver — force re-resolution instead. Bug found via audit.
+    build_switched = bool(saved_build) and saved_build != genome_build
 
     # ── Build status for all checks ─────────────────────────────────────────
     issues: list[str] = []   # categories that need fixing
@@ -529,30 +933,40 @@ def check_and_fix_dependencies() -> dict:
     table.add_column("Status",      justify="center",    min_width=12)
 
     # Tools
+    # GATK resolved once up front (bundled-folder detection counts as
+    # "present" even when not literally on PATH yet) so the printed table
+    # and the issues list agree — previously the table always showed GATK
+    # as "missing" whenever it wasn't on PATH, then a later block silently
+    # patched `issues` without the already-printed table ever reflecting
+    # it, contradicting what the code had actually decided. Found via audit.
+    gatk_path = detect_gatk_bin()
     tool_missing: list[str] = []
-    for name, _cmd, label in _TOOL_CHECKS:
-        ok = bool(shutil.which(name))
-        status = "[green]✔ found[/green]" if ok else "[red]✘ missing[/red]"
+    tool_outdated: list[str] = []
+    for name, version_cmd, label, min_version in _TOOL_CHECKS:
+        present = bool(shutil.which(name)) or (name == "gatk" and gatk_path is not None)
+        version_ok, found_ver = (True, "")
+        if present and shutil.which(name):
+            # Only version-check a tool actually resolved via PATH — a
+            # bundled-but-not-yet-PATH'd GATK is checked once it's added to
+            # PATH later in this same function.
+            version_ok, found_ver = _tool_version_ok(version_cmd, min_version)
+        ok = present and version_ok
+        if present and shutil.which(name) and not version_ok:
+            status = f"[yellow]⚠ {found_ver} < {min_version}[/yellow]"
+            tool_outdated.append(name)
+        else:
+            status = "[green]✔ found[/green]" if ok else "[red]✘ missing[/red]"
         table.add_row("Tools" if name == "bwa" else "", f"{label} ({name})", status)
         if not ok:
             tool_missing.append(name)
     if tool_missing:
         issues.append("tools")
 
-    # GATK via bundled path even when not on PATH
-    gatk_path = detect_gatk_bin()
-    if gatk_path and not shutil.which("gatk"):
-        # Fix PATH inline — update the "gatk" row retroactively isn't easy,
-        # but we'll show it as OK in the table since we can resolve it
-        tool_missing = [t for t in tool_missing if t != "gatk"]
-        if not tool_missing:
-            issues = [i for i in issues if i != "tools"]
-
     # Reference files
     ref_missing: list[str] = []
     for key, label in _REF_KEYS:
         val = cfg.get(key)
-        ok = bool(val and Path(val).exists())
+        ok = bool(val and Path(val).exists()) and not build_switched
         status = "[green]✔ found[/green]" if ok else "[red]✘ missing[/red]"
         table.add_row("References" if key == "reference" else "", label, status)
         if not ok:
@@ -564,13 +978,34 @@ def check_and_fix_dependencies() -> dict:
     annovar_missing: list[str] = []
     for key, label in _ANNOVAR_KEYS:
         val = cfg.get(key)
-        ok = bool(val and Path(val).exists())
+        # annovar_bin itself isn't build-specific (only annovar_db's contents
+        # are), so build_switched only forces re-resolution of annovar_db.
+        ok = bool(val and Path(val).exists()) and not (build_switched and key == "annovar_db")
+        # Restored via audit: a directory existing doesn't mean every database
+        # this build's protocol list needs is actually inside it — check the
+        # specific files too, so a database deleted after initial setup (or
+        # simply never fetched for this build) is caught here in seconds
+        # instead of failing table_annovar.pl hours into a real run.
+        if ok and key == "annovar_db":
+            complete, missing_dbs = annovar_databases_complete(Path(val), genome_build)
+            if not complete:
+                ok = False
+                console.print(
+                    f"  [yellow]⚠[/yellow]  ANNOVAR humandb missing database(s): "
+                    f"{', '.join(missing_dbs)}"
+                )
         status = "[green]✔ found[/green]" if ok else "[red]✘ missing[/red]"
         table.add_row("ANNOVAR" if key == "annovar_bin" else "", label, status)
         if not ok:
             annovar_missing.append(key)
     if annovar_missing:
         issues.append("annovar")
+
+    if build_switched:
+        console.print(
+            f"  [yellow]⚠  Genome build changed ({saved_build} → {genome_build}) — "
+            "re-resolving reference/ANNOVAR paths for the new build.[/yellow]"
+        )
 
     # ── Print the table ──────────────────────────────────────────────────────
     console.print()
@@ -579,6 +1014,13 @@ def check_and_fix_dependencies() -> dict:
 
     if not issues:
         console.print("  [green]✔  All dependencies satisfied.[/green] Starting pipeline...\n")
+        if saved_build != genome_build:
+            save_config({"genome_build": genome_build})  # persist even on the fast path
+        _step_multiqc()
+        _step_hpo_mapping()
+        _step_intervar(detect_annovar_bin())
+        if call_cnv:
+            _step_matplotlib()
         return cfg
 
     # ── Fix what's missing ──────────────────────────────────────────────────
@@ -589,36 +1031,57 @@ def check_and_fix_dependencies() -> dict:
     # Fix tools
     if "tools" in issues:
         console.print(Panel("[bold]Fixing: System Tools[/bold]", style="yellow"))
-        # GATK — add bundled path to PATH
+        # GATK — add bundled path to PATH, or auto-download if not found anywhere
         if "gatk" in tool_missing:
-            if gatk_path:
-                _add_to_path(gatk_path)
-                console.print(f"  [green]✔[/green]  GATK resolved: [cyan]{gatk_path}[/cyan]")
+            resolved_gatk = gatk_path or _step_gatk_download()
+            if resolved_gatk:
+                _add_to_path(resolved_gatk)
+                console.print(f"  [green]✔[/green]  GATK resolved: [cyan]{resolved_gatk}[/cyan]")
                 tool_missing.remove("gatk")
-                new_cfg["gatk_bin"] = gatk_path
+                new_cfg["gatk_bin"] = resolved_gatk
             else:
                 console.print(
-                    f"  [red]✘[/red]  GATK not found. Place [cyan]gatk-{GATK_VERSION}/[/cyan] "
-                    "inside the ExomeFlow folder."
+                    f"  [red]✘[/red]  GATK auto-download failed. Place "
+                    f"[cyan]gatk-{GATK_VERSION}/[/cyan] inside the ExomeFlow folder, "
+                    f"or download manually: {GATK_URL}"
                 )
-        # Other tools via conda
+        # Other tools via conda (installs anything missing, upgrades anything outdated)
         remaining_tools = [t for t in tool_missing if t != "gatk"]
         if remaining_tools:
-            _step_system_tools()
+            _step_system_tools(outdated=frozenset(tool_outdated))
+
+        # A tool that's still missing, or still below its minimum version
+        # after an upgrade attempt, is a hard failure — previously this fell
+        # through silently and the pipeline died later on a raw "command not
+        # found" (or an obscure tool-internal error for outdated versions)
+        # instead of a clear upfront error.
+        still_missing = [t for t in tool_missing if not shutil.which(t)]
+        for name, version_cmd, _label, min_version in _TOOL_CHECKS:
+            if name in tool_outdated and shutil.which(name):
+                ok, found_ver = _tool_version_ok(version_cmd, min_version)
+                if not ok:
+                    still_missing.append(f"{name} {found_ver} < {min_version} (upgrade failed)")
+        if still_missing:
+            console.print(f"  [red]✘[/red]  Still missing: {', '.join(still_missing)}")
+            raise SystemExit(1)
 
     # Fix reference files
     if "refs" in issues:
         console.print(Panel("[bold]Fixing: Reference Files[/bold]", style="yellow"))
         refs_dir = Path(cfg.get("refs_dir", Path.home() / ".exomeflow" / "refs"))
-        resolved_refs, ref_failures = _step_reference_files(refs_dir, existing_refs_dir=None)
+        resolved_refs, ref_failures = _step_reference_files(
+            refs_dir, existing_refs_dir=None, genome_build=genome_build,
+            assume_yes=assume_yes,
+        )
         if resolved_refs is None:
             console.print("  [red]✘[/red]  Reference files are required. Cannot continue.")
             raise SystemExit(1)
+        names = _CANONICAL_REF_NAMES[genome_build]
         new_cfg["refs_dir"]     = resolved_refs
-        new_cfg["reference"]    = _find_ref(resolved_refs, "Homo_sapiens_assembly38.fasta")
-        new_cfg["dbsnp"]        = _find_ref(resolved_refs, "Homo_sapiens_assembly38.dbsnp138.vcf.gz")
-        new_cfg["mills"]        = _find_ref(resolved_refs, "Mills_and_1000G_gold_standard.indels.hg38.vcf.gz")
-        new_cfg["known_indels"] = _find_ref(resolved_refs, "Homo_sapiens_assembly38.known_indels.vcf.gz")
+        new_cfg["reference"]    = _find_ref(resolved_refs, names["reference"])
+        new_cfg["dbsnp"]        = _find_ref(resolved_refs, names["dbsnp"])
+        new_cfg["mills"]        = _find_ref(resolved_refs, names["mills"])
+        new_cfg["known_indels"] = _find_ref(resolved_refs, names["known_indels"])
 
     # Fix ANNOVAR
     if "annovar" in issues:
@@ -632,7 +1095,9 @@ def check_and_fix_dependencies() -> dict:
             )
             raise SystemExit(1)
         default_db = Path(cfg.get("annovar_db", annovar_bin / "humandb"))
-        resolved_db, db_failures = _step_annovar_databases(annovar_bin, default_db)
+        resolved_db, db_failures = _step_annovar_databases(
+            annovar_bin, default_db, genome_build, assume_yes=assume_yes
+        )
         if resolved_db is None:
             console.print("  [red]✘[/red]  ANNOVAR databases are required. Cannot continue.")
             raise SystemExit(1)
@@ -640,10 +1105,18 @@ def check_and_fix_dependencies() -> dict:
         new_cfg["annovar_db"]  = resolved_db
 
     # Save any newly resolved paths
+    new_cfg["genome_build"] = genome_build
     if new_cfg:
         save_config(new_cfg)
         cfg = load_config()
         console.print(f"\n  [dim]Configuration updated → {CONFIG_PATH}[/dim]")
+
+    # Best-effort extras — never block the run (Phase 3/7 of the V2 plan)
+    _step_multiqc()
+    _step_hpo_mapping()
+    _step_intervar(detect_annovar_bin())
+    if call_cnv:
+        _step_matplotlib()
 
     console.print(Panel("[bold green]✔  All dependencies satisfied. Starting pipeline...[/bold green]",
                         style="green"))
@@ -680,6 +1153,8 @@ def run_setup(
     annovar_bin: Path | None = None,
     annovar_db: Path | None = None,
     existing_refs_dir: Path | None = None,
+    genome_build: str | None = None,
+    assume_yes: bool = False,
 ) -> int:
     """
     Run the full setup sequence.
@@ -694,6 +1169,7 @@ def run_setup(
 
     all_failures: list[str] = []
     config: dict = {}
+    genome_build = _ask_genome_build(genome_build or load_config().get("genome_build"), assume_yes)
 
     # ── Step 1: Bundled GATK + ANNOVAR ──────────────────────────────────────
     gatk_path, resolved_annovar_bin = _step_bundled_tools()
@@ -705,31 +1181,34 @@ def run_setup(
     all_failures += _step_system_tools()
 
     # ── Step 3: Reference files ─────────────────────────────────────────────
-    resolved_refs, ref_failures = _step_reference_files(refs_dir, existing_refs_dir)
+    resolved_refs, ref_failures = _step_reference_files(
+        refs_dir, existing_refs_dir, genome_build=genome_build, assume_yes=assume_yes
+    )
     all_failures += ref_failures
     if resolved_refs:
-        # Resolve actual paths — handle both dbsnp138 and alternate names
-        def _find_in(d: Path, canonical: str) -> Path:
-            for alt in [canonical] + _REF_ALTERNATES.get(canonical, []):
-                p = d / alt
-                if p.exists():
-                    return p
-            return d / canonical  # fallback even if not present yet
-
+        names = _CANONICAL_REF_NAMES[genome_build]
         config["refs_dir"]     = resolved_refs
-        config["reference"]    = _find_in(resolved_refs, "Homo_sapiens_assembly38.fasta")
-        config["dbsnp"]        = _find_in(resolved_refs, "Homo_sapiens_assembly38.dbsnp138.vcf.gz")
-        config["mills"]        = _find_in(resolved_refs, "Mills_and_1000G_gold_standard.indels.hg38.vcf.gz")
-        config["known_indels"] = _find_in(resolved_refs, "Homo_sapiens_assembly38.known_indels.vcf.gz")
+        config["genome_build"] = genome_build
+        config["reference"]    = _find_ref(resolved_refs, names["reference"])
+        config["dbsnp"]        = _find_ref(resolved_refs, names["dbsnp"])
+        config["mills"]        = _find_ref(resolved_refs, names["mills"])
+        config["known_indels"] = _find_ref(resolved_refs, names["known_indels"])
 
     # ── Step 4: ANNOVAR databases ────────────────────────────────────────────
     if effective_annovar_bin:
         default_db = annovar_db or (effective_annovar_bin / "humandb")
-        resolved_db, db_failures = _step_annovar_databases(effective_annovar_bin, default_db)
+        resolved_db, db_failures = _step_annovar_databases(
+            effective_annovar_bin, default_db, genome_build, assume_yes=assume_yes
+        )
         all_failures += db_failures
         if resolved_db:
             config["annovar_bin"] = effective_annovar_bin
             config["annovar_db"]  = resolved_db
+
+    # ── Step 5: InterVar + HPO mapping (best-effort) ─────────────────────────
+    _step_intervar(effective_annovar_bin)
+    _step_hpo_mapping()
+    _step_multiqc()
 
     # ── Save config ──────────────────────────────────────────────────────────
     if config:

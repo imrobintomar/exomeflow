@@ -25,3 +25,5 @@ HG001_*.vcf.gz.tbi
 HG001_*.bed
 *_exome_confident.bed
 *.sdf/
+pypi_token.txt
+*_markdup.bai

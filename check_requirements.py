@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Optional
 
 
 # ── ANSI colours (fallback to plain text if not supported) ────────────────────

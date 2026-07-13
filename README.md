@@ -50,26 +50,41 @@ checkpointing for resumable runs, structured logging, and parallel execution out
 
 Here are the things ExomeFlow does well:
 
-- **One-command setup** — `exomeflow setup` installs all system tools, downloads hg38 reference
-  files (~13 GB) and ANNOVAR databases (~100 GB) automatically
+- **Zero-config first run** — `exomeflow run` auto-detects bundled GATK/ANNOVAR, installs
+  missing tools, and downloads reference data + ANNOVAR databases on first use, saving
+  everything to `~/.exomeflow/config.json` so later runs need no extra flags
 - **Automatic sample detection** — scans an input directory and detects all paired-end
   samples from FASTQ filenames; no manifest file required
+- **Per-sample by default** — any number of samples processed together still produces
+  one separate annotated output file per sample, exactly like running them one at a time
 - **Complete GATK best-practice workflow** — fastp QC → BWA MEM alignment → coordinate
   sorting → duplicate marking → BQSR → HaplotypeCaller → hard filtering → ANNOVAR annotation
+- **Cohort joint genotyping (opt-in)** — `--joint-genotyping` switches to GenomicsDBImport +
+  GenotypeGVCFs, producing one shared cohort VCF/annotation instead of per-sample files
+- **Somatic mode** — `--mode somatic` calls variants tumor-only with Mutect2 instead of
+  HaplotypeCaller (tumor-normal pairing is on the roadmap, not yet supported)
+- **Read-depth CNV calling (opt-in)** — `--cnv` adds GATK CollectReadCounts/DenoiseReadCounts/
+  PlotDenoisedCopyRatios per sample (no panel-of-normals required)
+- **GRCh37/hg19 or hg38** — `--genome-build` selects the reference build; ANNOVAR buildver
+  and resource-bundle downloads follow automatically
+- **HPO + ACMG enrichment** — every annotated table is automatically joined with HPO
+  gene-to-phenotype terms and ACMG/AMP pathogenicity classification (via InterVar)
+- **Cohort QC rollup** — a MultiQC report aggregating fastp/flagstat/GATK metrics across
+  all samples, generated automatically at the end of each run
 - **Cohort processing** — processes any number of samples sequentially or in parallel
   with `--max-workers`
 - **Checkpointing and resume** — every completed step is recorded; an interrupted run
   resumes exactly where it left off without repeating work
-- **Automatic requirements check** — verifies all system tools and Python packages
-  before the pipeline starts, reporting every missing dependency at once
+- **Automatic requirements check** — every tool/database this pipeline needs is
+  auto-detected and, if missing, auto-installed or auto-downloaded — no manual setup step
 - **Structured logging** — per-sample log files plus a pipeline-wide log with
   INFO / WARNING / ERROR / SUCCESS levels
 - **GATK hard filters** — applies GATK best-practice SNP and INDEL hard-filter
   thresholds and extracts PASS-only variants automatically
 - **ANNOVAR functional annotation** — annotates variants against 8 databases:
   refGene, ClinVar, gnomAD, dbNSFP, COSMIC, ExAC, avSNP150, and dbscSNV
-- **Modular architecture** — each pipeline step is an independent Python module;
-  easy to extend or modify individual steps without touching the rest
+- **Modular architecture** — each pipeline step is an independent Python module
+  composed through a pluggable step registry; easy to extend without touching the rest
 - **PyPI installable** — `pip install exomeflow`; no Docker or Nextflow required
 
 ---
@@ -171,7 +186,8 @@ Accuracy evaluated against GIAB NISTv4.2.1 truth set restricted to Agilent V8 ca
 | INDEL | 89.38% | 66.14% | 76.02% | 623 | 74 | 319 |
 
 > Recall reflects PASS-only evaluation (conservative hard filters applied).
-> Running without `--pass-only` yields higher recall at the cost of precision.
+> PASS-only extraction is unconditional in ExomeFlow — there is no flag to disable it;
+> the raw pre-filter VCF (`<sample>.vcf` / `.g.vcf.gz`) is also kept if you need it.
 
 ### Functional Annotation (NA12878)
 
@@ -203,7 +219,7 @@ pip install exomeflow
 
 ```bash
 # Pull
-docker pull itsrobintomar/exomeflow:1.0.7
+docker pull itsrobintomar/exomeflow:2.0.0
 
 # Run
 docker run --rm -it \
@@ -212,7 +228,7 @@ docker run --rm -it \
   -v /path/to/vcf:/vcf \
   -v /path/to/annovar:/annovar \
   -v /path/to/results:/data/results \
-  itsrobintomar/exomeflow:1.0.7 run \
+  itsrobintomar/exomeflow:2.0.0 run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -240,10 +256,10 @@ docker run --rm -it \
 
 ```bash
 # Option A — Pull directly from Docker Hub (easiest)
-singularity pull exomeflow-1.0.7.sif docker://itsrobintomar/exomeflow:1.0.7
+singularity pull exomeflow-2.0.0.sif docker://itsrobintomar/exomeflow:2.0.0
 
 # Option B — Build from definition file (contact author for .def file)
-singularity build exomeflow-1.0.7.sif exomeflow.def
+singularity build exomeflow-2.0.0.sif exomeflow.def
 
 # Run
 singularity exec \
@@ -252,7 +268,7 @@ singularity exec \
   --bind /path/to/vcf:/vcf \
   --bind /path/to/annovar:/annovar \
   --bind /path/to/results:/data/results \
-  exomeflow-1.0.7.sif exomeflow run \
+  exomeflow-2.0.0.sif exomeflow run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -281,7 +297,7 @@ singularity exec \
   --bind $VCF_DIR:/vcf \
   --bind $ANNOVAR_DIR:/annovar \
   --bind $RESULTS_DIR:/data/results \
-  exomeflow-1.0.7.sif exomeflow run \
+  exomeflow-2.0.0.sif exomeflow run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -320,9 +336,12 @@ They must be installed separately and available on your `PATH`.
 
 - **[typer](https://typer.tiangolo.com/)** — Builds the CLI interface
 - **[rich](https://rich.readthedocs.io/)** — Provides coloured terminal output and structured logging
-- **[pandas](https://pandas.pydata.org/)** — Data handling for variant count summaries
+- **[pandas](https://pandas.pydata.org/)** — Data handling, variant count summaries, HPO/ACMG enrichment joins
 
 All Python dependencies are installed automatically with `pip install exomeflow`.
+`matplotlib` (needed only for `--cnv` plots) is an optional extra
+(`pip install exomeflow[viz]`) — the dependency checker installs it automatically
+the first time you run with `--cnv`, so you never need to install it by hand.
 
 ---
 
@@ -334,22 +353,7 @@ All Python dependencies are installed automatically with `pip install exomeflow`
 pip install exomeflow
 ```
 
-### 2. Set up all dependencies and reference data
-
-```bash
-exomeflow setup \
-  --refs-dir   /data/references/hg38 \
-  --annovar-bin /opt/annovar \
-  --annovar-db  /opt/annovar/humandb
-```
-
-This command will:
-- Install missing Python packages
-- Install system tools via conda (fastp, bwa, samtools, gatk4, perl)
-- Download hg38 reference files (~13 GB) using gsutil or wget
-- Download ANNOVAR annotation databases (~100 GB)
-
-### 3. Prepare FASTQ files
+### 2. Prepare FASTQ files
 
 ```
 fastq/
@@ -359,7 +363,19 @@ fastq/
 └── sample2_2.fastq.gz
 ```
 
-### 4. Run the pipeline
+### 3. Run the pipeline
+
+```bash
+exomeflow run --input-dir fastq/ --output results/
+```
+
+That's it. On first run, ExomeFlow detects bundled GATK/ANNOVAR, installs any missing
+system tools, and walks you through fetching (or locating) reference data, ANNOVAR
+databases, the HPO gene-to-phenotype mapping, and InterVar — then saves everything to
+`~/.exomeflow/config.json` so every later run needs nothing but `--input-dir`/`--output`.
+
+Prefer to control every path explicitly (e.g. on a shared HPC where refs already
+exist)? Every auto-resolved value can still be set explicitly:
 
 ```bash
 exomeflow run \
@@ -376,21 +392,29 @@ exomeflow run \
   --max-workers  2
 ```
 
+`exomeflow setup` still exists if you'd rather run provisioning as its own step (or
+re-run it later to change reference paths / download new databases) — it's optional,
+not a prerequisite.
+
+### Cohort, somatic, CNV, and GRCh37 modes
+
+```bash
+# Cohort joint genotyping instead of per-sample VCFs (opt-in)
+exomeflow run --input-dir fastq/ --output results/ --joint-genotyping --intervals targets.bed
+
+# Somatic tumor-only calling with Mutect2
+exomeflow run --input-dir fastq/ --output results/ --mode somatic --germline-resource af-only-gnomad.vcf.gz
+
+# Read-depth CNV calling alongside the normal germline workflow
+exomeflow run --input-dir fastq/ --output results/ --cnv --intervals targets.bed
+
+# GRCh37/hg19 instead of hg38
+exomeflow run --input-dir fastq/ --output results/ --genome-build GRCh37
+```
+
 ---
 
 ## Commands
-
-### `exomeflow setup` — Install dependencies and download reference data
-
-```
-exomeflow setup --refs-dir PATH --annovar-bin PATH --annovar-db PATH
-```
-
-| Option | Description |
-|--------|-------------|
-| `--refs-dir` | Directory to download hg38 reference files into |
-| `--annovar-bin` | ANNOVAR installation directory (must contain `annotate_variation.pl`) |
-| `--annovar-db` | ANNOVAR humandb directory for database downloads |
 
 ### `exomeflow run` — Execute the WES pipeline
 
@@ -402,19 +426,34 @@ exomeflow run [OPTIONS]
 |--------|---------|-------------|
 | `--input-dir`, `-i` | required | Directory containing paired FASTQ files |
 | `--output`, `-o` | `results/` | Root output directory |
-| `--reference`, `-r` | required | BWA-indexed reference FASTA (hg38.fa) |
-| `--dbsnp` | required | dbSNP VCF (bgzipped + tabix-indexed) |
-| `--mills` | required | Mills and 1000G gold standard indels VCF |
-| `--known-indels` | required | Known indels VCF for BQSR |
-| `--intervals` | _(optional)_ | Exome capture BED file |
+| `--reference`, `-r` | auto-resolved | BWA-indexed reference FASTA |
+| `--dbsnp` | auto-resolved | dbSNP VCF (bgzipped + tabix-indexed) |
+| `--mills` | auto-resolved | Mills and 1000G gold standard indels VCF |
+| `--known-indels` | auto-resolved | Known indels VCF for BQSR |
+| `--intervals` | _(optional)_ | Exome capture BED file — required for `--joint-genotyping`/`--cnv` |
 | `--interval-padding` | `100` | Base-pair padding around each target interval |
-| `--annovar-bin` | required | Directory containing `table_annovar.pl` |
-| `--annovar-db` | required | ANNOVAR humandb directory |
+| `--annovar-bin` | auto-resolved | Directory containing `table_annovar.pl` |
+| `--annovar-db` | auto-resolved | ANNOVAR humandb directory |
+| `--mode` | `germline` | `germline` (HaplotypeCaller) or `somatic` (tumor-only Mutect2) |
+| `--genome-build` | `hg38` | `hg38` or `GRCh37` |
+| `--joint-genotyping` | off | Cohort mode: one shared VCF/annotation instead of per-sample files |
+| `--cnv` | off | Also call read-depth CNVs per sample (needs `--intervals`) |
+| `--germline-resource` | _(optional)_ | gnomAD AF-only VCF for Mutect2, used by `--mode somatic` |
 | `--threads`, `-t` | `24` | Threads for BWA MEM and GATK HaplotypeCaller |
 | `--fastp-threads` | `8` | Threads for fastp |
 | `--annovar-threads` | `24` | Threads for ANNOVAR |
 | `--max-workers` | `1` | Number of samples to process in parallel |
 | `--java-opts` | `-Xmx80g` | JVM options passed via JAVA_OPTS |
+
+### `exomeflow setup` — Optional: run provisioning as its own step
+
+```
+exomeflow setup [--refs-dir PATH] [--annovar-bin PATH] [--annovar-db PATH] [--genome-build hg38|GRCh37] [--existing-refs PATH]
+```
+
+Not required before `exomeflow run` — first-run auto-setup covers the same ground.
+Useful for re-provisioning (switching reference builds, refreshing databases) without
+running the pipeline itself.
 
 ---
 
@@ -455,17 +494,38 @@ The `sample_id` can be any string — SRR accession, patient ID, etc.
 
 ## Output Files
 
+Per-sample output (default — one full set of these per sample, regardless of how many
+samples are in the run):
+
 | File | Description |
 |------|-------------|
 | `Mapsam/<sample>_recalibrated.bam` | Analysis-ready BAM — open in IGV |
-| `VCF/<sample>.vcf` | Raw HaplotypeCaller output |
-| `VCF/<sample>_PASS.vcf` | PASS-only hard-filtered variants |
-| `VCF/<sample>.annovar.hg38_multianno.vcf` | Annotated VCF |
-| `VCF/<sample>.annovar.hg38_multianno.txt` | Annotated tab-delimited table |
+| `VCF/<sample>.vcf` | Raw HaplotypeCaller output (germline) |
+| `VCF/<sample>_unfiltered.vcf.gz` | Raw Mutect2 output (`--mode somatic`) |
+| `VCF/<sample>_PASS.vcf` | PASS-only filtered variants |
+| `VCF/<sample>.annovar.<buildver>_multianno.{vcf,txt}` | ANNOVAR-annotated variants |
+| `VCF/<sample>.annovar.hpo.txt` | Annotated table + HPO terms + ACMG classification |
 | `filtered_fastp/<sample>_fastp.html` | fastp QC report |
 | `Mapsam/<sample>_flagstat.txt` | Alignment statistics |
+| `CNV/<sample>_denoised_cr.tsv` + plot | Read-depth CNV calls (`--cnv` only) |
 | `logs/analysis_<timestamp>.log` | Full pipeline log |
 | `logs/<sample>_<timestamp>.log` | Per-sample log |
+
+Cohort output (`--joint-genotyping` only — replaces the per-sample VCF/annotation files
+above with one shared set):
+
+| File | Description |
+|------|-------------|
+| `VCF/cohort/cohort.vcf.gz` | Joint-genotyped multi-sample VCF |
+| `VCF/cohort/cohort_PASS.vcf` | PASS-only filtered cohort variants |
+| `VCF/cohort/cohort.annovar.<buildver>_multianno.{vcf,txt}` | Annotated cohort variants |
+| `VCF/cohort/cohort.annovar.hpo.txt` | Annotated cohort table + HPO/ACMG |
+
+Always generated at the end of a run:
+
+| File | Description |
+|------|-------------|
+| `multiqc/exomeflow_report.html` | Cohort-wide QC rollup (fastp, flagstat, GATK metrics) |
 
 ---
 
@@ -488,7 +548,7 @@ MIT — see [pypi.org/project/exomeflow](https://pypi.org/project/exomeflow/) fo
 
 If you use ExomeFlow in your research, please cite:
 
-> Robin Kumar. (2026). *ExomeFlow* (1.0.9). Zenodo.
+> Robin Kumar. (2026). *ExomeFlow* (2.0.0). Zenodo.
 > https://doi.org/10.5281/zenodo.20155767
 >
 > ORCID: [0009-0002-9084-2019](https://orcid.org/0009-0002-9084-2019) · PyPI: [pypi.org/project/exomeflow](https://pypi.org/project/exomeflow/)

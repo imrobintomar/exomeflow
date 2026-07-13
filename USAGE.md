@@ -2,7 +2,7 @@
 
 **Author:** Robin Kumar, Bioinformatics Scientist, AIIMS New Delhi  
 **Package:** `pip install exomeflow`  
-**Version:** 1.0.2
+**Version:** 2.0.0
 
 ---
 
@@ -165,19 +165,14 @@ project/
 
 ### Minimal command
 
+On first run, ExomeFlow auto-detects/installs everything it needs and saves the
+resolved paths to `~/.exomeflow/config.json` — so this is genuinely all you need:
+
 ```bash
-exomeflow run \
-  --input-dir  fastq/ \
-  --output     results/ \
-  --reference  refs/hg38.fa \
-  --dbsnp      refs/dbsnp.vcf.gz \
-  --mills      refs/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
-  --known-indels refs/Homo_sapiens_assembly38.known_indels.vcf.gz \
-  --annovar-bin  /path/to/annovar \
-  --annovar-db   /path/to/annovar/humandb
+exomeflow run --input-dir fastq/ --output results/
 ```
 
-### Full command with all options
+### Explicit command (override auto-resolved paths)
 
 ```bash
 exomeflow run \
@@ -197,6 +192,26 @@ exomeflow run \
   --max-workers  2 \
   --java-opts    "-Xmx80g"
 ```
+
+### V2 modes
+
+```bash
+# Cohort joint genotyping — one shared VCF/annotation instead of per-sample files
+exomeflow run --input-dir fastq/ --output results/ --joint-genotyping --intervals targets.bed
+
+# Somatic tumor-only calling
+exomeflow run --input-dir fastq/ --output results/ --mode somatic --germline-resource af-only-gnomad.vcf.gz
+
+# Read-depth CNV alongside germline calling
+exomeflow run --input-dir fastq/ --output results/ --cnv --intervals targets.bed
+
+# GRCh37/hg19
+exomeflow run --input-dir fastq/ --output results/ --genome-build GRCh37
+```
+
+Every sample gets its own separate annotated output file by default, no matter how
+many samples are in `--input-dir` — cohort output only happens with `--joint-genotyping`,
+and that's an explicit opt-in, never an automatic side effect of batching samples.
 
 ### Check version
 
@@ -218,20 +233,29 @@ exomeflow run --help
 |--------|----------|---------|-------------|
 | `--input-dir` | Yes | — | Directory containing paired FASTQ files |
 | `--output` | Yes | `results/` | Root output directory |
-| `--reference` | Yes | — | BWA-indexed reference genome FASTA |
-| `--dbsnp` | Yes | — | dbSNP VCF (bgzipped + tabix-indexed) |
-| `--mills` | Yes | — | Mills and 1000G gold standard indels VCF |
-| `--known-indels` | Yes | — | Known indels VCF |
-| `--intervals` | No | — | Exome capture BED file. Omit for whole-genome mode |
+| `--reference` | No | auto-resolved | BWA-indexed reference genome FASTA |
+| `--dbsnp` | No | auto-resolved | dbSNP VCF (bgzipped + tabix-indexed) |
+| `--mills` | No | auto-resolved | Mills and 1000G gold standard indels VCF |
+| `--known-indels` | No | auto-resolved | Known indels VCF |
+| `--intervals` | No | — | Exome capture BED. Required for `--joint-genotyping`/`--cnv` |
 | `--interval-padding` | No | `100` | Base-pair padding around each target interval |
-| `--annovar-bin` | Yes | — | ANNOVAR installation directory |
-| `--annovar-db` | Yes | — | ANNOVAR humandb directory for hg38 |
+| `--annovar-bin` | No | auto-resolved | ANNOVAR installation directory |
+| `--annovar-db` | No | auto-resolved | ANNOVAR humandb directory |
+| `--mode` | No | `germline` | `germline` (HaplotypeCaller) or `somatic` (tumor-only Mutect2) |
+| `--genome-build` | No | `hg38` | `hg38` or `GRCh37` |
+| `--joint-genotyping` | No | off | Cohort mode — one shared VCF/annotation, not per-sample |
+| `--cnv` | No | off | Also call read-depth CNVs per sample |
+| `--germline-resource` | No | — | gnomAD AF-only VCF for `--mode somatic` |
 | `--threads` | No | `24` | Threads for BWA MEM and HaplotypeCaller |
 | `--fastp-threads` | No | `8` | Threads for fastp |
 | `--annovar-threads` | No | `24` | Threads for ANNOVAR |
 | `--max-workers` | No | `1` | Number of samples to process in parallel |
 | `--java-opts` | No | `-Xmx80g` | JVM memory options passed to GATK |
 | `--version` | No | — | Print version and exit |
+
+First run auto-resolves the six "auto-resolved" paths above interactively (or
+downloads them) and saves the result to `~/.exomeflow/config.json` — pass any of them
+explicitly to override the saved value for a single run.
 
 ---
 
@@ -253,11 +277,22 @@ results/
 │   ├── sample1_recalibrated.bam.bai        ← BAM index
 │   └── sample1_flagstat.txt                ← Alignment statistics
 │
-├── VCF/                                    ← Steps 8–12: Variant calling
+├── VCF/                                    ← Variant calling (per-sample by default)
 │   ├── sample1.vcf                         ← Raw HaplotypeCaller output
-│   ├── sample1_PASS.vcf                    ← PASS-only hard-filtered variants
+│   ├── sample1_PASS.vcf                    ← PASS-only filtered variants
 │   ├── sample1.annovar.hg38_multianno.vcf  ← Annotated VCF
-│   └── sample1.annovar.hg38_multianno.txt  ← Annotated tab-delimited table
+│   ├── sample1.annovar.hg38_multianno.txt  ← Annotated tab-delimited table
+│   ├── sample1.annovar.hpo.txt             ← + HPO terms + ACMG classification
+│   └── cohort/                             ← Only with --joint-genotyping
+│       ├── cohort.vcf.gz
+│       ├── cohort_PASS.vcf
+│       └── cohort.annovar.hg38_multianno.{vcf,txt}
+│
+├── CNV/                                    ← Only with --cnv
+│   └── sample1_denoised_cr.tsv + plot
+│
+├── multiqc/
+│   └── exomeflow_report.html               ← Cohort-wide QC rollup
 │
 ├── logs/
 │   ├── analysis_20250101_120000.log        ← Full pipeline log
@@ -461,4 +496,4 @@ exomeflow --version
 
 ---
 
-*ExomeFlow v1.0.2 — Robin Kumar, AIIMS New Delhi, 2025*
+*ExomeFlow v2.0.0 — Robin Kumar, AIIMS New Delhi, 2026*

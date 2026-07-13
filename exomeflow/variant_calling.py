@@ -10,7 +10,6 @@ Mirrors the Bash ``run_haplotype_caller`` function:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from exomeflow.utils import Checkpoint, run_cmd
@@ -30,14 +29,19 @@ def run_haplotype_caller(
     Call variants with HaplotypeCaller for *sample*.
 
     Input  : <map_dir>/<sample>_recalibrated.bam
-    Output : <vcf_dir>/<sample>.vcf
+    Output : <vcf_dir>/<sample>.vcf                 (default)
+             <vcf_dir>/<sample>.g.vcf.gz             (cfg.joint_genotyping=True)
     """
     if checkpoint.done(sample, STEP):
         logger.info("[%s] HaplotypeCaller already completed, skipping.", sample)
         return
 
     bam = cfg.map_dir / f"{sample}_recalibrated.bam"
-    vcf = cfg.vcf_dir / f"{sample}.vcf"
+    vcf = (
+        cfg.vcf_dir / f"{sample}.g.vcf.gz"
+        if cfg.joint_genotyping
+        else cfg.vcf_dir / f"{sample}.vcf"
+    )
 
     logger.info("[%s] Running HaplotypeCaller ...", sample)
 
@@ -49,9 +53,11 @@ def run_haplotype_caller(
         "--dbsnp", str(cfg.dbsnp),
         "--native-pair-hmm-threads", str(cfg.threads),
     ]
+    if cfg.joint_genotyping:
+        cmd += ["-ERC", "GVCF"]
 
     # Exome-interval support
-    if cfg.intervals and Path(cfg.intervals).exists():
+    if cfg.has_intervals:
         cmd += ["-L", str(cfg.intervals),
                 "--interval-padding", str(cfg.interval_padding)]
         logger.info(
@@ -60,9 +66,9 @@ def run_haplotype_caller(
         )
     else:
         logger.warning(
-            "[%s] No exome intervals BED found at '%s' — "
-            "calling whole genome (slower, more false positives).",
-            sample, cfg.intervals,
+            "[%s] No --intervals given — calling whole genome "
+            "(slower, more false positives).",
+            sample,
         )
 
     run_cmd(cmd, env=cfg.env(), step_name="HaplotypeCaller", sample=sample)
