@@ -1,4 +1,4 @@
-<img src="Logo.png" alt="ExomeFlow logo" width="220">
+<img src="ExomeFlow_Icon.png" alt="ExomeFlow logo" width="220">
 
 # ExomeFlow
 
