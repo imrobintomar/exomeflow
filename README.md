@@ -1,3 +1,5 @@
+<img src="Logo.png" alt="ExomeFlow logo" width="220">
+
 # ExomeFlow
 
 **A production-quality Python pipeline for Whole Exome Sequencing analysis.**
