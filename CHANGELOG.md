@@ -1,5 +1,84 @@
 # Changelog
 
+## 2.1.1
+
+Bug-fix release following a full source audit of 2.0.0. The most important fix:
+**`--joint-genotyping` was completely broken in 2.0.0** — every cohort run crashed
+after all the expensive GATK work had already succeeded. If you use cohort mode,
+upgrade before relying on it.
+
+### Fixed
+
+- **`--joint-genotyping` crashed every run** — `count_variants()` opened every VCF as
+  plain UTF-8 text with no gzip handling, but the cohort path feeds it GATK's
+  bgzipped `cohort.vcf.gz`. The resulting `UnicodeDecodeError` wasn't a
+  `PipelineStepError`, so it went uncaught and crashed the whole process after every
+  GATK step had already succeeded.
+- **Switching `--genome-build` on an already-configured install silently kept the old
+  build's reference/ANNOVAR files** — the check was pure file-existence with no
+  comparison against the previously-saved build, so BWA/GATK could run against hg38
+  while ANNOVAR/InterVar annotated as if the variants were hg19, with no error.
+- **GRCh37 annotation was broken even with correct references** — the default ANNOVAR
+  protocol list (`gnomad41_exome`/`gnomad41_genome`) is hg38-only; gnomAD v4.1 was
+  never released for hg19/GRCh37. GRCh37 runs now correctly use `gnomad211_exome`/
+  `gnomad211_genome` instead. `--genome-build` also now correctly persists to
+  `~/.exomeflow/config.json` on every path, not just when something needed fixing.
+- **Per-tool minimum-version enforcement was silently dropped** when the two
+  dependency checkers were consolidated in 2.0.0 — only presence was checked, not
+  actual version. Restored: an outdated tool is now detected and conda-upgraded
+  automatically, with a hard failure if the upgrade doesn't clear the minimum.
+- **ANNOVAR database completeness narrowed to "does the directory exist"** — a
+  database deleted after initial setup (or simply missing for the requested build)
+  went undetected until `table_annovar.pl` failed hours into a real run. Restored to
+  a per-database-file check, and made build-aware (hg38 vs. GRCh37 need different
+  database sets).
+- **A sample could get permanently stuck unable to retry a skipped step** (e.g. ACMG
+  classification skipped because InterVar wasn't provisioned yet) — the coarse
+  per-sample "COMPLETE" checkpoint flag was set regardless, so even after fixing the
+  underlying cause, the sample was never reprocessed. Checkpoint completeness (for
+  retry purposes) is now derived from the actual applicable step list instead of a
+  separate flag — this also means upgrading an existing v1/v2.0.0 output directory
+  correctly reprocesses just the new steps (hpo/acmg) instead of skipping the sample
+  entirely. (A related regression introduced while fixing this — a gracefully-skipped
+  optional step incorrectly excluded the sample from the MultiQC cohort rollup even on
+  an otherwise fully successful run — was caught by live smoke testing before release
+  and fixed in the same pass.)
+- **Several subprocess calls could hang forever** on a stalled connection, including
+  the exact script (`annotate_variation.pl -downdb`) whose orphaned-child-process
+  behavior had already been fixed for InterVar in 2.0.0 but not applied to its other
+  call sites. All now have bounded, process-group-killing timeouts; large file
+  downloads (wget/curl) use stall-detection instead of a fixed cutoff so legitimate
+  multi-hour transfers aren't killed.
+- **The Python version floor check (<3.9) was dropped entirely** with no replacement
+  — restored with a clear upfront error instead of a confusing failure deep inside a
+  3.9+-only module.
+- `shutil.disk_usage()` crash on system-resource auto-detection when `--output`
+  doesn't exist yet (the common case — it's documented as "created if absent").
+- `--annovar-protocols`/`--annovar-operations` CLI overrides added — a user with a
+  pre-existing, differently-versioned ANNOVAR install now has a way to work around a
+  version mismatch without editing source.
+- Fail-fast validation moved before the (potentially multi-hour) setup wizard: a bad
+  `--input-dir`, or `--joint-genotyping`/`--cnv` without `--intervals`, now fails in
+  under a second instead of after the wizard completes.
+- ANNOVAR crashing on a completely empty PASS VCF (e.g. catastrophic sequencing
+  failure, or an intervals BED with near-zero coverage overlap) — now skips annotation
+  cleanly with a warning instead of a cryptic Perl error.
+- System resource auto-detection (`--threads`/`--java-opts` sizing from actual
+  CPU/RAM) and a system-wide ANNOVAR humandb lookup (reuses an existing installation
+  elsewhere on disk instead of re-downloading ~90GB blind).
+
+### Changed
+
+- Deduplicated repeated logic found during the audit: the hg38/hg19 ANNOVAR-buildver
+  mapping (previously computed independently in three places), the genome-build CLI
+  validation (duplicated in `run`/`setup`), reference-file alternate-name lookup
+  (duplicated as a nested function), and the `--intervals`-presence check (reimplemented
+  in `cli.py` instead of reusing `Config.has_intervals`).
+- ANNOVAR protocol/operation pairing is now validated in `Config` itself (previously
+  only in `cli.py`, so any other caller building a `Config` directly bypassed it).
+- HPO/ACMG pandas reads now load only the columns actually used instead of the full
+  table.
+
 ## 2.0.0
 
 Default-flag behavior is unchanged from v1: a bare `exomeflow run --input-dir fastq/
