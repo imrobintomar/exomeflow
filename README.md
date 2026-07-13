@@ -1,4 +1,3 @@
-![ExomeFlow Cover](https://raw.githubusercontent.com/imrobintomar/exomeflow-assets/main/ExomeFlow_Cover.png)
 
 # ExomeFlow: A Production-Quality Python WES Analysis Toolkit
 
