@@ -1,4 +1,7 @@
-<img src="ExomeFlow_Icon.png" alt="ExomeFlow logo" width="500">
+<div align="center">
+
+<img src="ExomeFlow_Icon.png" alt="ExomeFlow Logo" width="700">
+
 
 # ExomeFlow
 
@@ -12,7 +15,9 @@
 | **Meta** | [![License - MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://pypi.org/project/exomeflow/) [![Python Versions](https://img.shields.io/pypi/pyversions/exomeflow)](https://pypi.org/project/exomeflow/) [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.20155767-blue)](https://doi.org/10.5281/zenodo.20155767) [![bio.tools](https://img.shields.io/badge/bio.tools-exomeflow-008080)](https://bio.tools/exomeflow) [![OpenEBench](https://img.shields.io/badge/OpenEBench-benchmarked-blue)](https://openebench.bsc.es/tool/biotools:exomeflow) |
 | **Author** | [![AIIMS New Delhi](https://img.shields.io/badge/Institution-AIIMS%20New%20Delhi-red)](https://www.aiims.edu) [![ORCID](https://img.shields.io/badge/ORCID-0009--0002--9084--2019-brightgreen?logo=orcid)](https://orcid.org/0009-0002-9084-2019) |
 
+</div>
 ---
+
 
 ## Overview
 
