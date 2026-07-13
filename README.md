@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="ExomeFlow_Icon.png" alt="ExomeFlow Logo" width="700">
+<img src="https://raw.githubusercontent.com/imrobintomar/exomeflow/main/ExomeFlow_Icon.png" alt="ExomeFlow Logo" width="700">
 
 
 # ExomeFlow
@@ -8,6 +8,7 @@
 **A production-quality Python pipeline for Whole Exome Sequencing analysis.**
 
 
+| | |
 |---|---|
 | **CI** | [![CI](https://github.com/imrobintomar/exomeflow/actions/workflows/ci.yml/badge.svg)](https://github.com/imrobintomar/exomeflow/actions/workflows/ci.yml) [![Platform](https://img.shields.io/badge/platform-linux--64-lightgrey)](https://pypi.org/project/exomeflow/) |
 | **Package** | [![PyPI Latest Release](https://img.shields.io/pypi/v/exomeflow.svg)](https://pypi.org/project/exomeflow/) [![Downloads](https://static.pepy.tech/badge/exomeflow)](https://pepy.tech/project/exomeflow) [![Wheel](https://img.shields.io/pypi/wheel/exomeflow)](https://pypi.org/project/exomeflow/) [![PyPI Status](https://img.shields.io/pypi/status/exomeflow)](https://pypi.org/project/exomeflow/) |
