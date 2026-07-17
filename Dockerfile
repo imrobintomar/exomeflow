@@ -8,9 +8,9 @@
 # ANNOVAR: cannot be bundled (license). Mount your local copy at runtime.
 #
 # ── Build & push ────────────────────────────────────────────
-#   docker build -t itsrobintomar/exomeflow:2.2.2 .
-#   docker tag  itsrobintomar/exomeflow:2.2.2 itsrobintomar/exomeflow:latest
-#   docker push itsrobintomar/exomeflow:2.2.2
+#   docker build -t itsrobintomar/exomeflow:2.2.3 .
+#   docker tag  itsrobintomar/exomeflow:2.2.3 itsrobintomar/exomeflow:latest
+#   docker push itsrobintomar/exomeflow:2.2.3
 #   docker push itsrobintomar/exomeflow:latest
 #
 # ── Run ─────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ FROM broadinstitute/gatk:4.6.2.0
 LABEL maintainer="Robin Kumar <itsrobintomar@gmail.com>"
 LABEL org.opencontainers.image.title="ExomeFlow"
 LABEL org.opencontainers.image.description="Production-quality Whole Exome Sequencing analysis pipeline"
-LABEL org.opencontainers.image.version="2.2.2"
+LABEL org.opencontainers.image.version="2.2.3"
 LABEL org.opencontainers.image.url="https://github.com/imrobintomar/exomeflow"
 LABEL org.opencontainers.image.licenses="MIT"
 
@@ -70,7 +70,7 @@ RUN conda install -y \
 ENV JAVA_OPTS="-Xmx80g"
 
 # ── ExomeFlow ────────────────────────────────────────────────────────────────
-RUN pip install --no-cache-dir exomeflow==2.2.2
+RUN pip install --no-cache-dir exomeflow==2.2.3
 
 # ── Verify ───────────────────────────────────────────────────────────────────
 RUN gatk --version && \

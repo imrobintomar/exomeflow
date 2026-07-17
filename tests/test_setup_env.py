@@ -10,7 +10,9 @@ from exomeflow.setup_env import (
     _step_system_tools,
     annovar_databases_complete,
     detect_annovar_bin,
+    detect_annovar_humandb,
     detect_gatk_bin,
+    run_setup,
 )
 
 
@@ -281,3 +283,108 @@ def test_step_annovar_databases_no_download_when_already_complete(tmp_path, monk
     )
     assert resolved_db == db_dir
     assert failures == []
+
+
+def test_step_annovar_databases_no_duplicate_check_when_paths_match(tmp_path, monkeypatch):
+    """
+    Regression test for a live bug: default_db and annovar_bin/humandb are
+    frequently the exact same path (whenever no explicit --annovar-db was
+    given), which printed the identical "Found N/7 ... missing: ..." line
+    twice in a row.
+    """
+    annovar_bin = tmp_path / "annovar"
+    annovar_bin.mkdir()
+    (annovar_bin / "annotate_variation.pl").touch()
+    db_dir = annovar_bin / "humandb"
+    db_dir.mkdir()
+
+    reports = []
+    monkeypatch.setattr(setup_env.console, "print", lambda *a, **k: reports.append(a))
+    monkeypatch.setattr(setup_env, "detect_annovar_humandb", lambda buildver: None)
+    monkeypatch.setattr(setup_env, "_ask", lambda *a, **k: False)
+
+    _step_annovar_databases(annovar_bin, db_dir, genome_build="hg38", assume_yes=True)
+
+    zero_of_seven = [r for r in reports if any("0/7" in str(x) for x in r)]
+    assert len(zero_of_seven) == 1
+
+
+def test_run_setup_reuses_saved_annovar_db(tmp_path, monkeypatch):
+    """
+    Regression test for a live bug: a previously-saved annovar_db (answered
+    interactively in an earlier run) was ignored by run_setup(), which
+    always fell back to <annovar_bin>/humandb and re-triggered the whole
+    find-or-ask flow from scratch on every subsequent `exomeflow setup`.
+    """
+    annovar_bin = tmp_path / "annovar"
+    annovar_bin.mkdir()
+    saved_db = tmp_path / "real_humandb_elsewhere"
+    saved_db.mkdir()
+
+    monkeypatch.setattr(setup_env, "CONFIG_PATH", tmp_path / "config.json")
+    setup_env.save_config({"annovar_db": str(saved_db)})
+
+    monkeypatch.setattr(setup_env, "_step_bundled_tools", lambda assume_yes=False: (None, annovar_bin))
+    monkeypatch.setattr(setup_env, "_step_system_tools", lambda *a, **k: [])
+    monkeypatch.setattr(setup_env, "_step_reference_files", lambda *a, **k: (None, []))
+    monkeypatch.setattr(setup_env, "_step_intervar", lambda *a, **k: None)
+    monkeypatch.setattr(setup_env, "_step_hpo_mapping", lambda: True)
+    monkeypatch.setattr(setup_env, "_step_multiqc", lambda: True)
+
+    seen_default_db = {}
+
+    def _fake_step_annovar_databases(annovar_bin_arg, default_db, genome_build, assume_yes=False):
+        seen_default_db["path"] = default_db
+        return default_db, []
+
+    monkeypatch.setattr(setup_env, "_step_annovar_databases", _fake_step_annovar_databases)
+
+    run_setup(refs_dir=tmp_path / "refs", genome_build="hg38", assume_yes=True)
+
+    assert seen_default_db["path"] == saved_db
+
+
+def test_detect_annovar_humandb_prefers_most_complete_hit(tmp_path, monkeypatch):
+    """
+    Regression test: multiple refGene.txt hits on the system (e.g. InterVar
+    bundles its own small humandb subset) used to just take find's first
+    output line, which isn't a meaningful ordering.
+    """
+    small_hit = tmp_path / "intervar_humandb"
+    small_hit.mkdir()
+    (small_hit / "hg38_refGene.txt").touch()
+
+    full_hit = tmp_path / "real_humandb"
+    full_hit.mkdir()
+    for name in ["refGene", "avsnp150", "clinvar_20240611", "gnomad41_exome"]:
+        (full_hit / f"hg38_{name}.txt").touch()
+
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: "/usr/bin/find")
+
+    class _FakeResult:
+        stdout = f"{small_hit}/hg38_refGene.txt\n{full_hit}/hg38_refGene.txt\n"
+
+    monkeypatch.setattr(setup_env.subprocess, "run", lambda *a, **k: _FakeResult())
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "no_fast_candidates_here")
+
+    result = detect_annovar_humandb("hg38")
+    assert result == full_hit
+
+
+def test_detect_annovar_humandb_salvages_partial_output_on_timeout(tmp_path, monkeypatch):
+    hit_dir = tmp_path / "humandb"
+    hit_dir.mkdir()
+    (hit_dir / "hg38_refGene.txt").touch()
+
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: "/usr/bin/find")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "no_fast_candidates_here")
+
+    def _raise_timeout(*a, **k):
+        raise setup_env.subprocess.TimeoutExpired(
+            cmd="find", timeout=30, output=f"{hit_dir}/hg38_refGene.txt\n"
+        )
+
+    monkeypatch.setattr(setup_env.subprocess, "run", _raise_timeout)
+
+    result = detect_annovar_humandb("hg38")
+    assert result == hit_dir

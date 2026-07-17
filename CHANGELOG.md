@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.2.3
+
+Three bugs found live, from a real `exomeflow setup` transcript, all in the
+"do we already have this?" detection path for ANNOVAR databases.
+
+### Fixed
+
+- **`exomeflow setup` re-triggered the whole find-or-ask flow every time,
+  ignoring a previously-saved `annovar_db`** — `run_setup()` computed its
+  default database path as `annovar_bin/humandb` unconditionally, never
+  checking `~/.exomeflow/config.json`'s already-saved `annovar_db` (the
+  `exomeflow run` path already did this correctly; `exomeflow setup` didn't).
+  A path you'd already answered interactively in an earlier run had to be
+  re-entered — or, worse, re-found — on every subsequent `exomeflow setup`.
+- **The same "Found N/7 databases ... missing: ..." line printed twice** —
+  the default-location check tried `default_db` and `annovar_bin/humandb`
+  as two separate candidates, but they're the same path whenever no
+  explicit `--annovar-db` was given, so the identical check (and message)
+  ran twice in a row.
+- **The system-wide humandb search picked whichever hit `find` happened to
+  print first, not the most complete one** — on a system with more than one
+  `refGene.txt` (e.g. InterVar bundles its own small humandb subset for its
+  own use), `find`'s output order isn't meaningful, so the small subset
+  could be selected over the real, complete humandb. Now prefers whichever
+  hit has the most `{buildver}_*.txt` files alongside it. Also: a timeout
+  on that search used to discard any hits `find` had already printed before
+  it ran out of time; now salvages that partial output instead.
+
 ## 2.2.2
 
 ### Fixed

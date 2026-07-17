@@ -347,15 +347,37 @@ def detect_annovar_humandb(buildver: str = "hg38", timeout_s: int = 30) -> Path 
     roots = [str(p) for p in (Path("/media"), Path("/mnt"), Path("/data"), Path.home()) if p.is_dir()]
     if not roots:
         return None
+    stdout = ""
     try:
         result = subprocess.run(
             ["find", *roots, "-maxdepth", "6", "-iname", f"{buildver}_refGene.txt"],
             capture_output=True, text=True, timeout=timeout_s,
         )
-    except subprocess.TimeoutExpired:
+        stdout = result.stdout
+    except subprocess.TimeoutExpired as exc:
+        # Use whatever find had already printed before the timeout instead
+        # of discarding a real hit just because the rest of the scan (e.g.
+        # one more, slower mount) didn't finish in time.
+        stdout = exc.stdout or ""
+
+    hits = [Path(line).parent for line in stdout.splitlines() if line]
+    if not hits:
         return None
-    hit = next((line for line in result.stdout.splitlines() if line), None)
-    return Path(hit).parent if hit else None
+    if len(hits) == 1:
+        return hits[0]
+
+    # More than one refGene.txt on the system is possible — e.g. InterVar
+    # bundles its own small humandb subset that also has a refGene file —
+    # and `find`'s output order isn't meaningful. Prefer whichever hit has
+    # the most {buildver}_*.txt files alongside it, as a proxy for "the
+    # real, full humandb" over a small bundled subset.
+    def _file_count(p: Path) -> int:
+        try:
+            return sum(1 for _ in p.glob(f"{buildver}_*.txt"))
+        except OSError:
+            return 0
+
+    return max(hits, key=_file_count)
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +806,11 @@ def _step_annovar_databases(
     # reported as complete and the pipeline proceeded to annotate without
     # ever downloading the database it had just told the user was missing.)
     db_dir: Path | None = None
-    for candidate_db in [default_db, annovar_bin / "humandb"]:
+    # dict.fromkeys dedupes while preserving order — default_db and
+    # annovar_bin/humandb are frequently the same path (whenever no
+    # explicit --annovar-db was given), which used to print the identical
+    # "Found N/7 ... missing: ..." line twice in a row.
+    for candidate_db in dict.fromkeys([default_db, annovar_bin / "humandb"]):
         if candidate_db.exists():
             complete, missing = annovar_databases_complete(candidate_db, genome_build)
             _report("default", candidate_db, missing)
@@ -1449,7 +1475,8 @@ def run_setup(
 
     all_failures: list[str] = []
     config: dict = {}
-    genome_build = _ask_genome_build(genome_build or load_config().get("genome_build"), assume_yes)
+    saved_cfg = load_config()
+    genome_build = _ask_genome_build(genome_build or saved_cfg.get("genome_build"), assume_yes)
 
     # ── Step 1: Bundled GATK + ANNOVAR ──────────────────────────────────────
     gatk_path, resolved_annovar_bin = _step_bundled_tools(assume_yes=assume_yes)
@@ -1476,7 +1503,15 @@ def run_setup(
 
     # ── Step 4: ANNOVAR databases ────────────────────────────────────────────
     if effective_annovar_bin:
-        default_db = annovar_db or (effective_annovar_bin / "humandb")
+        # A previously-saved annovar_db (e.g. answered interactively in an
+        # earlier `exomeflow setup`/`exomeflow run`) is checked before
+        # falling back to <annovar_bin>/humandb — otherwise every re-run of
+        # `exomeflow setup` "forgot" it and re-triggered the whole
+        # find-or-ask flow from scratch. Not trusted blindly: still run
+        # through _step_annovar_databases()'s own existence/completeness
+        # check like any other candidate.
+        saved_db = saved_cfg.get("annovar_db")
+        default_db = annovar_db or (Path(saved_db) if saved_db else effective_annovar_bin / "humandb")
         resolved_db, db_failures = _step_annovar_databases(
             effective_annovar_bin, default_db, genome_build, assume_yes=assume_yes
         )
