@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.2.4
+
+Root-caused by reviewing a real annotated output file: ACMG classification
+had been silently failing on every single run since it was introduced —
+verified fixed end-to-end against a live InterVar install.
+
+### Fixed
+
+- **ACMG classification silently failed on every run** — InterVar hard-
+  requires `intervardb/mim2gene.txt` (a file from OMIM) to run its
+  classification logic at all. Without it, InterVar prints "Error: can't
+  read the OMIM file ... Please download it from http://www.omim.org/downloads"
+  and never produces its output file, which the pipeline only ever saw as a
+  generic "expected InterVar output not found — skipping merge" with no
+  indication why. Unlike ANNOVAR, this file needs no registration — OMIM
+  publishes it as a plain public download — but InterVar's own GitHub repo
+  doesn't ship it, so a plain `git clone` never provisioned it. Now
+  auto-downloaded during InterVar setup (and retroactively, for existing
+  installs, the next time dependencies are checked).
+- **InterVar was never given its own ACMG-criteria database path** — `-t`/
+  `--database_intervar` (PVS1 LOF genes, PM1 domains, etc. — distinct from
+  `-d`, the plain ANNOVAR annotation database) was never passed, so InterVar
+  fell back to its config file's relative default path, resolved against
+  the pipeline's working directory rather than InterVar's own install
+  directory.
+
+### Changed
+
+- **InterVar now shares the main `--annovar-db` humandb directory** instead
+  of maintaining a fully separate, isolated copy. Several of the databases
+  InterVar's own protocol list needs (refGene, ensGene, knownGene, rmsk) are
+  static, version-agnostic gene/repeat definitions that overlap with what
+  the main pipeline already downloaded — reusing them avoids duplicating
+  tens of GB in a second location. InterVar's other, specifically-versioned
+  databases (avsnp147, dbnsfp42a, clinvar_20210501, etc. — different exact
+  versions than `--annovar-protocols` uses) still download into that same
+  shared directory rather than a separate one.
+
 ## 2.2.3
 
 Three bugs found live, from a real `exomeflow setup` transcript, all in the

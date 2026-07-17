@@ -4,6 +4,7 @@ from pathlib import Path
 import exomeflow.setup_env as setup_env
 from exomeflow.setup_env import (
     ANNOVAR_DATABASES_BY_BUILD,
+    _ensure_mim2gene,
     _step_annovar_databases,
     _step_bootstrap_micromamba,
     _step_bundled_tools,
@@ -388,3 +389,47 @@ def test_detect_annovar_humandb_salvages_partial_output_on_timeout(tmp_path, mon
 
     result = detect_annovar_humandb("hg38")
     assert result == hit_dir
+
+
+def test_ensure_mim2gene_downloads_when_missing(tmp_path, monkeypatch):
+    """
+    Regression test for a live bug: InterVar hard-requires
+    intervardb/mim2gene.txt to run its ACMG classification at all, but a
+    plain `git clone` of InterVar's repo never provisions it (InterVar's
+    own repo doesn't ship it), so classification silently failed on every
+    sample with no indication why. Unlike ANNOVAR, this file needs no
+    registration — OMIM publishes it as a plain public download.
+    """
+    intervar_dir = tmp_path / "intervar"
+    intervar_dir.mkdir()
+
+    downloaded = {}
+
+    def _fake_download(url, dest):
+        downloaded["url"] = url
+        downloaded["dest"] = dest
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("dummy")
+        return True
+
+    monkeypatch.setattr(setup_env, "_download_file", _fake_download)
+
+    _ensure_mim2gene(intervar_dir)
+
+    assert downloaded["dest"] == intervar_dir / "intervardb" / "mim2gene.txt"
+    assert downloaded["url"] == setup_env.MIM2GENE_URL
+    assert (intervar_dir / "intervardb" / "mim2gene.txt").exists()
+
+
+def test_ensure_mim2gene_skips_when_already_present(tmp_path, monkeypatch):
+    intervar_dir = tmp_path / "intervar"
+    db_dir = intervar_dir / "intervardb"
+    db_dir.mkdir(parents=True)
+    (db_dir / "mim2gene.txt").write_text("already here")
+
+    def _fail_if_called(*a, **k):
+        raise AssertionError("should not re-download when already present")
+
+    monkeypatch.setattr(setup_env, "_download_file", _fail_if_called)
+
+    _ensure_mim2gene(intervar_dir)

@@ -55,11 +55,17 @@ def _run_intervar_tool(label: str, vcf: Path, out_prefix: Path, cfg: "Config") -
         )
         return None
 
-    # InterVar's own database dir, isolated from cfg.annovar_db: InterVar's
-    # config.ini requires a fixed set of (specifically versioned) databases of
-    # its own, unrelated to whatever --annovar-protocols this run is using, so
-    # any auto-downloads it triggers shouldn't land in the shared humandb dir.
-    intervar_db = intervar_bin / "humandb"
+    # InterVar's own protocol list (refGene, esp6500siv2_all, 1000g2015aug,
+    # avsnp147, dbnsfp42a, clinvar_20210501, gnomad_genome, dbscsnv11, rmsk,
+    # ensGene, knownGene) is fixed by its own config.ini and mostly doesn't
+    # match --annovar-protocols' versions — but several of these (refGene,
+    # ensGene, knownGene, rmsk) are static, version-agnostic gene/repeat
+    # definitions that overlap with what the main pipeline already
+    # downloaded. Point -d at the same shared humandb instead of a second,
+    # fully isolated copy: whatever already overlaps is reused for free, and
+    # whatever InterVar still needs downloads into the same shared pool
+    # instead of duplicating tens of GB in a second location.
+    intervar_db = Path(cfg.annovar_db) if cfg.annovar_db else intervar_bin / "humandb"
     intervar_db.mkdir(parents=True, exist_ok=True)
 
     # InterVar's required databases are unrelated to --annovar-db and are
@@ -81,6 +87,13 @@ def _run_intervar_tool(label: str, vcf: Path, out_prefix: Path, cfg: "Config") -
         "--input_type=VCF",
         "-o", str(out_prefix),
         "-d", str(intervar_db),
+        # InterVar's own ACMG-criteria database (PVS1 LOF genes, PM1 domains,
+        # OMIM mim2gene.txt, etc.) — distinct from -d, which is only the
+        # ANNOVAR annotation database. Omitting this flag left InterVar
+        # falling back to its config.ini's relative default ("intervardb"),
+        # resolved against whatever the pipeline's cwd happened to be rather
+        # than InterVar's own install directory. Found via a live run.
+        "-t", str(intervar_bin / "intervardb"),
         "--table_annovar", str(Path(cfg.annovar_bin) / "table_annovar.pl"),
         "--convert2annovar", str(Path(cfg.annovar_bin) / "convert2annovar.pl"),
         "--annotate_variation", str(Path(cfg.annovar_bin) / "annotate_variation.pl"),

@@ -916,10 +916,42 @@ def detect_intervar_bin() -> Path | None:
     return None
 
 
+MIM2GENE_URL = "https://omim.org/static/omim/data/mim2gene.txt"
+
+
+def _ensure_mim2gene(intervar_dir: Path) -> None:
+    """
+    InterVar's ACMG classification step hard-requires intervardb/mim2gene.txt
+    to run at all — without it, InterVar prints "Error: can't read the OMIM
+    file ... Please download it from http://www.omim.org/downloads" and
+    silently fails to produce any classification output (the pipeline then
+    only sees a generic "expected output not found" with no indication why).
+
+    Unlike ANNOVAR, this specific file needs no registration — OMIM
+    publishes it as a plain public download — but InterVar's own GitHub repo
+    doesn't ship it (likely the same redistribution concern that stops
+    ANNOVAR bundling ClinVar), so a git clone alone never provisions it.
+    Found via a live run: ACMG classification silently failed on every
+    sample despite InterVar itself being correctly installed.
+    """
+    dest = intervar_dir / "intervardb" / "mim2gene.txt"
+    if dest.exists():
+        return
+    logger.info("Downloading OMIM mim2gene.txt (required by InterVar's ACMG classification) ...")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not _download_file(MIM2GENE_URL, dest):
+        logger.warning(
+            "mim2gene.txt download failed — ACMG classification will fail until "
+            "it's placed at %s (freely downloadable, no registration required).",
+            dest,
+        )
+
+
 def _step_intervar(annovar_bin: Path | None) -> Path | None:
     """Auto-clone InterVar and download its database if not already present."""
     found = detect_intervar_bin()
     if found:
+        _ensure_mim2gene(found)
         return found
 
     if not shutil.which("git"):
@@ -936,6 +968,7 @@ def _step_intervar(annovar_bin: Path | None) -> Path | None:
         logger.warning("InterVar auto-install failed — ACMG classification will be skipped.")
         return None
 
+    _ensure_mim2gene(INTERVAR_DIR)
     logger.log(25, "InterVar installed: %s", INTERVAR_DIR)
     return INTERVAR_DIR
 

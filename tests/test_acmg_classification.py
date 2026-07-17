@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import exomeflow.acmg_classification as mod
@@ -7,6 +8,44 @@ def test_run_intervar_tool_skips_gracefully_when_not_installed(tmp_path: Path, c
     monkeypatch.setattr("exomeflow.setup_env.detect_intervar_bin", lambda: None)
     result = mod._run_intervar_tool("s1", tmp_path / "s1_PASS.vcf", tmp_path / "s1.intervar", cfg)
     assert result is None
+
+
+def test_run_intervar_tool_shares_annovar_db_and_passes_intervardb_flag(tmp_path: Path, cfg, monkeypatch):
+    """
+    Regression test for two live bugs: (1) InterVar was pointed at its own
+    fully separate humandb copy instead of reusing cfg.annovar_db, wasting
+    tens of GB on files (refGene, ensGene, knownGene) already downloaded by
+    the main pipeline; (2) -t/--database_intervar (InterVar's own ACMG
+    criteria database, distinct from -d) was never passed at all, so
+    InterVar fell back to a relative default path resolved against the
+    pipeline's cwd instead of its own install directory.
+    """
+    intervar_bin = tmp_path / "intervar"
+    (intervar_bin / "intervardb").mkdir(parents=True)
+    (intervar_bin / "Intervar.py").touch()
+    monkeypatch.setattr("exomeflow.setup_env.detect_intervar_bin", lambda: intervar_bin)
+
+    captured = {}
+
+    class _FakeProc:
+        returncode = 0
+
+        def communicate(self, timeout=None):
+            return "", ""
+
+    def _fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _FakeProc()
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    mod._run_intervar_tool("s1", tmp_path / "s1_PASS.vcf", tmp_path / "s1.intervar", cfg)
+
+    cmd = captured["cmd"]
+    assert "-d" in cmd
+    assert cmd[cmd.index("-d") + 1] == str(cfg.annovar_db)
+    assert "-t" in cmd
+    assert cmd[cmd.index("-t") + 1] == str(intervar_bin / "intervardb")
 
 
 def test_merge_acmg_skips_when_enriched_file_missing(tmp_path: Path, capfd):
