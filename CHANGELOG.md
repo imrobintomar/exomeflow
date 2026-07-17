@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.1.2
+
+Packaging-only fix: the README shipped as PyPI's project description in 2.1.1
+rendered broken.
+
+### Fixed
+
+- **Badges table rendered as literal `|---|---|` text on PyPI** — the table's
+  delimiter row had no header row above it, which PyPI's stricter README
+  renderer requires (GitHub tolerated it). Added the missing header row.
+- **Logo didn't render on PyPI** — the `<img>` used a relative `src` path,
+  which resolves against the GitHub repo on GitHub's renderer but has no
+  equivalent base on PyPI. Switched to the `raw.githubusercontent.com`
+  absolute URL.
+
+No code changes — `exomeflow` behavior is identical to 2.1.1.
+
 ## 2.1.1
 
 Bug-fix release following a full source audit of 2.0.0. The most important fix:

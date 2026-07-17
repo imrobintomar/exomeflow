@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use ExomeFlow in your research, please cite it using this metadata."
 title: "ExomeFlow: A Production-Quality Python Package for Automated Whole Exome Sequencing Analysis"
-version: 2.1.1
+version: 2.1.2
 doi: 10.5281/zenodo.20155767
 date-released: "2026-05-13"
 authors:

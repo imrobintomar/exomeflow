@@ -10,7 +10,7 @@
 #   └── annovar/           ← ANNOVAR Perl scripts (no humandb)
 #
 # ── Build ────────────────────────────────────────────────────
-#   docker build -f Dockerfile.local -t exomeflow-local:2.1.1 .
+#   docker build -f Dockerfile.local -t exomeflow-local:2.1.2 .
 #
 # ── Run ─────────────────────────────────────────────────────
 #   docker run --rm -it \
@@ -19,7 +19,7 @@
 #     -v /path/to/vcf:/vcf \
 #     -v /path/to/annovar/humandb:/annovar/humandb \
 #     -v /path/to/results:/data/results \
-#     exomeflow-local:2.1.1 run \
+#     exomeflow-local:2.1.2 run \
 #       --input-dir    /data/fastq \
 #       --output       /data/results \
 #       --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -38,7 +38,7 @@ FROM continuumio/miniconda3:24.1.2-0
 LABEL maintainer="Robin Kumar <itsrobintomar@gmail.com>"
 LABEL org.opencontainers.image.title="ExomeFlow (local build)"
 LABEL org.opencontainers.image.description="ExomeFlow WES pipeline — private build with bundled GATK + ANNOVAR"
-LABEL org.opencontainers.image.version="2.1.1"
+LABEL org.opencontainers.image.version="2.1.2"
 
 # ── System packages + Java 17 ────────────────────────────────────────────────
 RUN apt-get update -qq && \
@@ -81,7 +81,7 @@ RUN chmod +x /annovar/*.pl
 ENV PATH="/annovar:${PATH}"
 
 # ── ExomeFlow ────────────────────────────────────────────────────────────────
-RUN pip install --no-cache-dir exomeflow==2.1.1
+RUN pip install --no-cache-dir exomeflow==2.1.2
 
 # ── Verify ───────────────────────────────────────────────────────────────────
 RUN gatk --version && \
