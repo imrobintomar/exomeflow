@@ -749,58 +749,77 @@ def _step_annovar_databases(
         return None, failures
 
     annotate_pl = annovar_bin / "annotate_variation.pl"
+    total_gb = sum(s for _, _, s in required) // 1024
 
-    # Check existing db in the annovar_bin/humandb location
+    def _report(label: str, path: Path, missing: list[str], auto: bool = False) -> None:
+        found_n = len(required) - len(missing)
+        suffix = " (auto-detected)" if auto else ""
+        if not missing:
+            console.print(
+                f"  [green]✔[/green]  Found {found_n}/{len(required)} "
+                f"databases in [cyan]{path}[/cyan]{suffix}"
+            )
+        else:
+            console.print(
+                f"  [yellow]⚠[/yellow]  Found {found_n}/{len(required)} "
+                f"databases in [cyan]{path}[/cyan]{suffix} — missing: {', '.join(missing)}"
+            )
+
+    # Check existing db in the annovar_bin/humandb location. A location that
+    # has *some* but not all required databases isn't returned as done — it
+    # falls through to the download loop below so only the missing ones get
+    # fetched. (Found via a live run: a partial match here used to be
+    # reported as complete and the pipeline proceeded to annotate without
+    # ever downloading the database it had just told the user was missing.)
+    db_dir: Path | None = None
     for candidate_db in [default_db, annovar_bin / "humandb"]:
         if candidate_db.exists():
-            existing = [d for d, _, _ in required
-                        if (candidate_db / f"{buildver}_{d}.txt").exists()]
-            if existing:
-                console.print(
-                    f"  [green]✔[/green]  Found {len(existing)}/{len(required)} "
-                    f"databases in [cyan]{candidate_db}[/cyan]"
-                )
+            complete, missing = annovar_databases_complete(candidate_db, genome_build)
+            _report("default", candidate_db, missing)
+            if complete:
                 return candidate_db, []
+            if len(missing) < len(required):
+                db_dir = candidate_db
+                break
 
-    # System-wide lookup — these are 10s-100s of GB; check for an existing
-    # humandb elsewhere on disk before asking the user or downloading blind.
-    console.print("  [dim]Searching the system for an existing ANNOVAR humandb ...[/dim]")
-    found_db = detect_annovar_humandb(buildver)
-    if found_db:
-        existing = [d for d, _, _ in required
-                    if (found_db / f"{buildver}_{d}.txt").exists()]
+    if db_dir is None:
+        # System-wide lookup — these are 10s-100s of GB; check for an existing
+        # humandb elsewhere on disk before asking the user or downloading blind.
+        console.print("  [dim]Searching the system for an existing ANNOVAR humandb ...[/dim]")
+        found_db = detect_annovar_humandb(buildver)
+        if found_db:
+            complete, missing = annovar_databases_complete(found_db, genome_build)
+            _report("system", found_db, missing, auto=True)
+            if complete:
+                return found_db, []
+            db_dir = found_db
+
+    if db_dir is None:
+        # Ask user
         console.print(
-            f"  [green]✔[/green]  Found {len(existing)}/{len(required)} "
-            f"databases in [cyan]{found_db}[/cyan] (auto-detected)"
+            f"  ANNOVAR databases are required for variant annotation (~{total_gb} GB total).\n"
+            "  These include: refGene, ClinVar, gnomAD, dbNSFP, avSNP."
         )
-        return found_db, []
 
-    # Ask user
-    total_gb = sum(s for _, _, s in required) // 1024
-    console.print(
-        f"  ANNOVAR databases are required for variant annotation (~{total_gb} GB total).\n"
-        "  These include: refGene, ClinVar, gnomAD, dbNSFP, avSNP."
-    )
+        if not assume_yes and _ask("Do you already have an ANNOVAR humandb directory?"):
+            user_path = _ask_path("Enter the path to your humandb directory")
+            if user_path and user_path.is_dir():
+                complete, missing = annovar_databases_complete(user_path, genome_build)
+                _report("user-supplied", user_path, missing)
+                if complete:
+                    return user_path, []
+                db_dir = user_path
+            else:
+                console.print("  [red]✘[/red]  Path not found or not entered.")
+                failures.append("ANNOVAR humandb path not valid")
+                return None, failures
 
-    if not assume_yes and _ask("Do you already have an ANNOVAR humandb directory?"):
-        user_path = _ask_path("Enter the path to your humandb directory")
-        if user_path and user_path.is_dir():
-            existing = [d for d, _, _ in required
-                        if (user_path / f"{buildver}_{d}.txt").exists()]
-            console.print(
-                f"  [green]✔[/green]  Found {len(existing)}/{len(required)} "
-                f"databases in [cyan]{user_path}[/cyan]"
-            )
-            return user_path, []
-        else:
-            console.print("  [red]✘[/red]  Path not found or not entered.")
-            failures.append("ANNOVAR humandb path not valid")
-            return None, failures
-
-    # Offer download
-    db_dir = default_db
+    # Offer download (either a fresh directory, or filling in the gaps in a
+    # partially-complete one found above)
+    if db_dir is None:
+        db_dir = default_db
     if not _ask(
-        f"Download ANNOVAR databases to {db_dir}? (~{total_gb} GB)",
+        f"Download the missing ANNOVAR database(s) to {db_dir}? (~{total_gb} GB total set)",
         default_yes=True, assume_yes=assume_yes,
     ):
         failures.append("ANNOVAR databases not downloaded — required for annotation")

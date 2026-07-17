@@ -4,6 +4,7 @@ from pathlib import Path
 import exomeflow.setup_env as setup_env
 from exomeflow.setup_env import (
     ANNOVAR_DATABASES_BY_BUILD,
+    _step_annovar_databases,
     _step_bootstrap_micromamba,
     _step_bundled_tools,
     _step_system_tools,
@@ -189,3 +190,70 @@ def test_step_system_tools_reports_failure_when_bootstrap_fails(monkeypatch):
     failures = _step_system_tools()
     assert len(failures) == 1
     assert "conda not found" in failures[0]
+
+
+def test_step_annovar_databases_downloads_missing_db_on_partial_match(tmp_path, monkeypatch):
+    """
+    Regression test for a live bug: a humandb directory with 6/7 required
+    databases was reported as "found" and the pipeline proceeded without
+    ever downloading the 7th (clinvar_20240611) — the completeness check
+    only required *some* database to be present, not all of them.
+    """
+    annovar_bin = tmp_path / "annovar"
+    annovar_bin.mkdir()
+    (annovar_bin / "annotate_variation.pl").touch()
+
+    db_dir = tmp_path / "humandb"
+    db_dir.mkdir()
+    buildver = "hg38"
+    all_dbs = [name for name, _, _ in ANNOVAR_DATABASES_BY_BUILD["hg38"]]
+    missing_db = "clinvar_20240611"
+    for name in all_dbs:
+        if name != missing_db:
+            (db_dir / f"{buildver}_{name}.txt").touch()
+
+    downloaded = []
+
+    def _fake_run_visible(cmd, timeout_s=21600):
+        # cmd: ["perl", annotate_pl, "-buildver", buildver, "-downdb",
+        #       "-webfrom", "annovar", db_name, db_dir]
+        db_name = cmd[7]
+        downloaded.append(db_name)
+        (db_dir / f"{buildver}_{db_name}.txt").touch()
+        return True
+
+    monkeypatch.setattr(setup_env, "_run_visible", _fake_run_visible)
+
+    resolved_db, failures = _step_annovar_databases(
+        annovar_bin, db_dir, genome_build="hg38", assume_yes=True,
+    )
+
+    assert downloaded == [missing_db]
+    assert failures == []
+    assert resolved_db == db_dir
+    complete, still_missing = annovar_databases_complete(db_dir, "hg38")
+    assert complete
+    assert still_missing == []
+
+
+def test_step_annovar_databases_no_download_when_already_complete(tmp_path, monkeypatch):
+    annovar_bin = tmp_path / "annovar"
+    annovar_bin.mkdir()
+    (annovar_bin / "annotate_variation.pl").touch()
+
+    db_dir = tmp_path / "humandb"
+    db_dir.mkdir()
+    buildver = "hg38"
+    for name, _, _ in ANNOVAR_DATABASES_BY_BUILD["hg38"]:
+        (db_dir / f"{buildver}_{name}.txt").touch()
+
+    def _fail_if_called(*a, **k):
+        raise AssertionError("should not attempt any download when already complete")
+
+    monkeypatch.setattr(setup_env, "_run_visible", _fail_if_called)
+
+    resolved_db, failures = _step_annovar_databases(
+        annovar_bin, db_dir, genome_build="hg38", assume_yes=True,
+    )
+    assert resolved_db == db_dir
+    assert failures == []

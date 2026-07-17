@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.1
+
+### Fixed
+
+- **A partially-complete ANNOVAR humandb was reported and treated as fully
+  set up** — found live: a directory with 6 of the 7 required databases
+  (missing `clinvar_20240611`) was accepted as "found," and the pipeline
+  proceeded straight to annotation without ever downloading the missing one.
+  The completeness check only required *some* database to be present, not
+  all of the required set. `_step_annovar_databases()` now uses the same
+  per-file completeness check already used by the pre-flight status table,
+  and a partial match falls through to the download loop for just the
+  missing database(s) instead of short-circuiting as done.
+
 ## 2.2.0
 
 Focused on the "just-installed, not-technically-sound user" path: `pip install

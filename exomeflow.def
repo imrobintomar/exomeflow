@@ -3,10 +3,10 @@
 # For HPC clusters where Docker is not available
 #
 # ── Build ────────────────────────────────────────────────────
-#   singularity build exomeflow-2.2.0.sif exomeflow.def
+#   singularity build exomeflow-2.2.1.sif exomeflow.def
 #
 #   # Or pull directly from Docker Hub (no build needed):
-#   singularity pull exomeflow-2.2.0.sif docker://itsrobintomar/exomeflow:2.2.0
+#   singularity pull exomeflow-2.2.1.sif docker://itsrobintomar/exomeflow:2.2.1
 #
 # ── Run ─────────────────────────────────────────────────────
 #   singularity exec \
@@ -15,7 +15,7 @@
 #     --bind /path/to/vcf:/vcf \
 #     --bind /path/to/annovar:/annovar \
 #     --bind /path/to/results:/data/results \
-#     exomeflow-2.2.0.sif exomeflow run \
+#     exomeflow-2.2.1.sif exomeflow run \
 #       --input-dir    /data/fastq \
 #       --output       /data/results \
 #       --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -39,7 +39,7 @@
 #     --bind $VCF_DIR:/vcf \
 #     --bind $ANNOVAR_DIR:/annovar \
 #     --bind $RESULTS_DIR:/data/results \
-#     exomeflow-2.2.0.sif exomeflow run \
+#     exomeflow-2.2.1.sif exomeflow run \
 #       --input-dir /data/fastq --output /data/results \
 #       --reference /refs/Homo_sapiens_assembly38.fasta \
 #       --dbsnp     /vcf/Homo_sapiens_assembly38.dbsnp138.vcf.gz \
@@ -56,17 +56,17 @@ From: broadinstitute/gatk:4.6.2.0
     Author          Robin Kumar
     Affiliation     AIIMS New Delhi
     Email           itsrobintomar@gmail.com
-    Version         2.2.0
+    Version         2.2.1
     URL             https://github.com/imrobintomar/exomeflow
 
 %help
-    ExomeFlow v2.2.0 — Production Whole Exome Sequencing Analysis Pipeline
+    ExomeFlow v2.2.1 — Production Whole Exome Sequencing Analysis Pipeline
 
     Workflow: FASTQ → fastp → BWA MEM → GATK BQSR → HaplotypeCaller
               → Filtering → ANNOVAR annotation
 
     Usage:
-      singularity exec exomeflow-2.2.0.sif exomeflow run \
+      singularity exec exomeflow-2.2.1.sif exomeflow run \
         --input-dir /data/fastq --output /data/results \
         --reference /refs/Homo_sapiens_assembly38.fasta \
         --dbsnp     /vcf/Homo_sapiens_assembly38.dbsnp138.vcf.gz \
@@ -108,7 +108,7 @@ From: broadinstitute/gatk:4.6.2.0
     && conda clean -afy
 
     # ExomeFlow
-    pip install --no-cache-dir exomeflow==2.2.0
+    pip install --no-cache-dir exomeflow==2.2.1
 
     # Verify
     gatk --version
