@@ -66,7 +66,16 @@ def intervals_present(path: Path | None) -> bool:
     """
     return path is not None and path.exists()
 
-# Hard-filter expressions for SNPs (GATK best-practice)
+# Hard-filter expressions for SNPs — exactly GATK's official germline
+# short-variant hard-filter recommendation, no added thresholds:
+# https://gatk.broadinstitute.org/hc/en-us/articles/360035890471
+# (A site-level DP<10 filter was previously applied here too, on top of
+# GATK's own recommendation. It isn't part of GATK's hard-filter guidance,
+# and unlike the other expressions here it doesn't distinguish "modest but
+# real" from "artifact" — QD (quality normalized by depth) already covers
+# that. Removed so real variants at borderline-but-genuine depth, e.g. near
+# capture-kit target edges, aren't discarded by a threshold GATK doesn't
+# actually recommend.)
 SNP_FILTERS: list[tuple[str, str]] = [
     ("QD < 2.0",             "SNP_LowQD"),
     ("FS > 60.0",            "SNP_StrandBias"),
@@ -74,19 +83,20 @@ SNP_FILTERS: list[tuple[str, str]] = [
     ("MQ < 40.0",            "SNP_LowMQ"),
     ("MQRankSum < -12.5",    "SNP_MQRankSum"),
     ("ReadPosRankSum < -8.0", "SNP_ReadPosRankSum"),
-    ("DP < 10",              "LowDepth"),
 ]
+# Genotype-level (not site-level): flags a sample's own call as low-confidence
+# via the VCF's FT field, but does not exclude the variant from *_PASS.vcf —
+# SelectVariants --exclude-filtered only checks the site FILTER column.
 SNP_GENOTYPE_FILTERS: list[tuple[str, str]] = [
     ("GQ < 20", "LowGQ"),
 ]
 
-# Hard-filter expressions for INDELs (GATK best-practice)
+# Hard-filter expressions for INDELs — same GATK official set, see above.
 INDEL_FILTERS: list[tuple[str, str]] = [
     ("QD < 2.0",               "INDEL_LowQD"),
     ("FS > 200.0",             "INDEL_StrandBias"),
     ("SOR > 10.0",             "INDEL_StrandOddsRatio"),
     ("ReadPosRankSum < -20.0", "INDEL_ReadPosRankSum"),
-    ("DP < 10",                "LowDepth"),
 ]
 INDEL_GENOTYPE_FILTERS: list[tuple[str, str]] = [
     ("GQ < 20", "LowGQ"),

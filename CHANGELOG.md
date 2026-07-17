@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.1.3
+
+### Added
+
+- **`<sample>_R1.fastq.gz` / `<sample>_R2.fastq.gz` naming convention** —
+  accepted alongside the existing `_1`/`_2` convention, resolved per sample,
+  so a single run can mix both.
+
+### Fixed
+
+- **`exomeflow setup` / `exomeflow run` could "forget" a fully-configured
+  ANNOVAR (and potentially GATK) install** — `detect_annovar_bin()` and
+  `detect_gatk_bin()` only checked cwd-relative and hardcoded paths, never
+  the path already saved in `~/.exomeflow/config.json`. Running the CLI from
+  any directory other than the one it was originally set up from could
+  report "ANNOVAR not found" even though it was already fully configured.
+  Both detectors now check the saved config first.
+- **A non-standard `DP < 10` hard filter was discarding real variants** —
+  on top of GATK's own recommended germline hard-filter thresholds (QD, FS,
+  SOR, MQ, MQRankSum, ReadPosRankSum — all still present, unchanged, and
+  matching GATK's official guidance exactly), a site-level minimum-depth
+  filter had been added that isn't part of that recommendation. Unlike the
+  other thresholds, raw depth doesn't distinguish "modest but real" from
+  "artifact" — QD (quality normalized by depth) already covers that — so it
+  could discard genuine variants at borderline-but-real coverage (e.g. near
+  capture-kit target edges). Removed; the hard-filter set is now exactly
+  GATK's documented recommendation, nothing added on top.
+
 ## 2.1.2
 
 Packaging-only fix: the README shipped as PyPI's project description in 2.1.1

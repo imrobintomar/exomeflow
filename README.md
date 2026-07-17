@@ -211,7 +211,11 @@ Benchmarked on **NA12878 (HG001)** whole-exome sequencing data (Hg38), default g
 
 > Recall reflects PASS-only evaluation under conservative hard filters. PASS-only
 > extraction is unconditional in ExomeFlow  the raw pre-filter VCF is always retained
-> alongside it.
+> alongside it. **This benchmark predates a fix that removed a non-standard
+> `DP < 10` site filter** — a threshold that was never part of GATK's own hard-filter
+> recommendation and could discard real variants at modest-but-genuine depth (e.g.
+> near capture-kit target edges). The recall above likely understates current
+> behavior; numbers will be refreshed against a re-run once available.
 
 ### Functional Annotation (NA12878)
 
@@ -240,7 +244,7 @@ pip install exomeflow
 ### Option 2 Docker
 
 ```bash
-docker pull itsrobintomar/exomeflow:2.1.2
+docker pull itsrobintomar/exomeflow:2.1.3
 
 docker run --rm -it \
   -v /path/to/fastq:/data/fastq \
@@ -248,7 +252,7 @@ docker run --rm -it \
   -v /path/to/vcf:/vcf \
   -v /path/to/annovar:/annovar \
   -v /path/to/results:/data/results \
-  itsrobintomar/exomeflow:2.1.2 run \
+  itsrobintomar/exomeflow:2.1.3 run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -276,10 +280,10 @@ docker run --rm -it \
 
 ```bash
 # Pull directly from Docker Hub
-singularity pull exomeflow-2.1.2.sif docker://itsrobintomar/exomeflow:2.1.2
+singularity pull exomeflow-2.1.3.sif docker://itsrobintomar/exomeflow:2.1.3
 
 # Or build from the definition file
-singularity build exomeflow-2.1.2.sif exomeflow.def
+singularity build exomeflow-2.1.3.sif exomeflow.def
 
 singularity exec \
   --bind /path/to/fastq:/data/fastq \
@@ -287,7 +291,7 @@ singularity exec \
   --bind /path/to/vcf:/vcf \
   --bind /path/to/annovar:/annovar \
   --bind /path/to/results:/data/results \
-  exomeflow-2.1.2.sif exomeflow run \
+  exomeflow-2.1.3.sif exomeflow run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -316,7 +320,7 @@ singularity exec \
   --bind $VCF_DIR:/vcf \
   --bind $ANNOVAR_DIR:/annovar \
   --bind $RESULTS_DIR:/data/results \
-  exomeflow-2.1.2.sif exomeflow run \
+  exomeflow-2.1.3.sif exomeflow run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
