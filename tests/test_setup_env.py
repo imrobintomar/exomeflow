@@ -4,6 +4,9 @@ from pathlib import Path
 import exomeflow.setup_env as setup_env
 from exomeflow.setup_env import (
     ANNOVAR_DATABASES_BY_BUILD,
+    _step_bootstrap_micromamba,
+    _step_bundled_tools,
+    _step_system_tools,
     annovar_databases_complete,
     detect_annovar_bin,
     detect_gatk_bin,
@@ -95,3 +98,94 @@ def test_detect_gatk_bin_uses_saved_config_regardless_of_cwd(tmp_path, monkeypat
     monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
 
     assert detect_gatk_bin() == gatk_bin
+
+
+def test_step_bundled_tools_no_prompt_under_assume_yes(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup_env, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(setup_env, "detect_gatk_bin", lambda: None)
+    monkeypatch.setattr(setup_env, "_step_gatk_download", lambda: None)
+    monkeypatch.setattr(setup_env, "detect_annovar_bin", lambda: None)
+
+    def _fail_if_called(*a, **k):
+        raise AssertionError("input() should never be called under assume_yes=True")
+
+    monkeypatch.setattr("builtins.input", _fail_if_called)
+
+    gatk, annovar = _step_bundled_tools(assume_yes=True)
+    assert annovar is None
+
+
+def test_step_bundled_tools_prompts_for_annovar_path(tmp_path, monkeypatch):
+    annovar_dir = tmp_path / "somewhere" / "annovar"
+    annovar_dir.mkdir(parents=True)
+    (annovar_dir / "table_annovar.pl").touch()
+
+    monkeypatch.setattr(setup_env, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(setup_env, "detect_gatk_bin", lambda: None)
+    monkeypatch.setattr(setup_env, "_step_gatk_download", lambda: None)
+    monkeypatch.setattr(setup_env, "detect_annovar_bin", lambda: None)
+    monkeypatch.setattr(setup_env.sys.stdin, "isatty", lambda: True)
+
+    answers = iter(["y", str(annovar_dir)])
+    monkeypatch.setattr("builtins.input", lambda *_: next(answers))
+
+    gatk, annovar = _step_bundled_tools(assume_yes=False)
+    assert annovar == annovar_dir
+
+
+def test_bootstrap_micromamba_returns_cached_binary(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "conda" / "bin"
+    bin_dir.mkdir(parents=True)
+    fake_bin = bin_dir / "micromamba"
+    fake_bin.touch()
+    monkeypatch.setattr(setup_env, "MICROMAMBA_BIN", fake_bin)
+
+    def _fail_if_called(*a, **k):
+        raise AssertionError("should not re-download when already bootstrapped")
+
+    monkeypatch.setattr(setup_env, "_download_file", _fail_if_called)
+
+    assert _step_bootstrap_micromamba() == fake_bin
+
+
+def test_bootstrap_micromamba_returns_none_on_download_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup_env, "MICROMAMBA_DIR", tmp_path / "conda")
+    monkeypatch.setattr(setup_env, "MICROMAMBA_BIN", tmp_path / "conda" / "bin" / "micromamba")
+    monkeypatch.setattr(setup_env, "_download_file", lambda url, dest: False)
+
+    assert _step_bootstrap_micromamba() is None
+
+
+def test_step_system_tools_bootstraps_micromamba_when_conda_missing(tmp_path, monkeypatch):
+    fake_mm = tmp_path / "micromamba"
+    fake_mm.touch()
+    env_dir = tmp_path / "env"
+
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup_env, "_step_bootstrap_micromamba", lambda: fake_mm)
+    monkeypatch.setattr(setup_env, "MICROMAMBA_ENV", env_dir)
+
+    calls = []
+
+    def _fake_run_silent(cmd, timeout_s=900):
+        calls.append(cmd)
+        return True
+
+    monkeypatch.setattr(setup_env, "_run_silent", _fake_run_silent)
+
+    failures = _step_system_tools()
+    assert failures == []
+    assert len(calls) == len(setup_env._SYSTEM_TOOLS)
+    for cmd in calls:
+        assert cmd[0] == str(fake_mm)
+        assert cmd[1] == "create"
+        assert "-p" in cmd and str(env_dir) in cmd
+
+
+def test_step_system_tools_reports_failure_when_bootstrap_fails(monkeypatch):
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup_env, "_step_bootstrap_micromamba", lambda: None)
+
+    failures = _step_system_tools()
+    assert len(failures) == 1
+    assert "conda not found" in failures[0]

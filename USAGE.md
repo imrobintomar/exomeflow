@@ -2,7 +2,7 @@
 
 **Author:** Robin Kumar, Bioinformatics Scientist, AIIMS New Delhi  
 **Package:** `pip install exomeflow`  
-**Version:** 2.1.3
+**Version:** 2.2.0
 
 ---
 
@@ -500,4 +500,4 @@ exomeflow --version
 
 ---
 
-*ExomeFlow v2.1.3 — Robin Kumar, AIIMS New Delhi, 2026*
+*ExomeFlow v2.2.0 — Robin Kumar, AIIMS New Delhi, 2026*

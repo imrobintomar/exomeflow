@@ -21,6 +21,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -168,6 +169,15 @@ _SYSTEM_TOOLS: list[tuple[str, str]] = [
     ("fastp",    "bioconda::fastp"),
     ("perl",     "conda-forge::perl"),
 ]
+
+# micromamba — a single self-contained binary, no installer/shell-init
+# required — bootstrapped automatically when neither conda nor mamba is on
+# PATH, so bwa/samtools/fastp/perl can still be auto-installed without
+# requiring the user to go install Miniconda themselves first.
+MICROMAMBA_DIR = Path.home() / ".exomeflow" / "conda"
+MICROMAMBA_BIN = MICROMAMBA_DIR / "bin" / "micromamba"
+MICROMAMBA_ENV = MICROMAMBA_DIR / "env"
+MICROMAMBA_URL = "https://micro.mamba.pm/api/micromamba/linux-64/latest"
 
 CONFIG_PATH = Path.home() / ".exomeflow" / "config.json"
 
@@ -443,7 +453,7 @@ def _gsutil_cp(gcs_path: str, dest: Path) -> bool:
 # Step 1 — Bundled tools (GATK + ANNOVAR)
 # ---------------------------------------------------------------------------
 
-def _step_bundled_tools() -> tuple[Path | None, Path | None]:
+def _step_bundled_tools(assume_yes: bool = False) -> tuple[Path | None, Path | None]:
     """
     Detect bundled GATK and ANNOVAR. Add GATK to PATH.
     Returns (gatk_path, annovar_bin).
@@ -468,16 +478,27 @@ def _step_bundled_tools() -> tuple[Path | None, Path | None]:
             f"  [cyan]{GATK_URL}[/cyan]"
         )
 
-    # ANNOVAR
+    # ANNOVAR — cannot be auto-downloaded: it requires free personal
+    # registration before Annovar's own site will hand out a download link
+    # (their license, not ours). Once you have it, it can live anywhere.
     annovar = detect_annovar_bin()
     if annovar:
         console.print(f"  [green]✔[/green]  ANNOVAR: [cyan]{annovar}[/cyan]")
     else:
         console.print(
-            "  [red]✘[/red]  ANNOVAR not found.\n"
-            "  Place the ANNOVAR folder (with table_annovar.pl) inside the ExomeFlow folder as 'annovar/'.\n"
-            "  Register + download: [cyan]https://annovar.openbioinformatics.org[/cyan]"
+            "  [red]✘[/red]  ANNOVAR not found automatically.\n"
+            "  Register (free) and download at: "
+            "[cyan]https://annovar.openbioinformatics.org[/cyan]\n"
+            "  Extract the tar.gz anywhere on disk — it doesn't need to be inside\n"
+            "  any particular folder."
         )
+        if not assume_yes and _ask("Already have ANNOVAR downloaded and extracted somewhere?"):
+            user_path = _ask_path("Enter the path to the directory containing table_annovar.pl")
+            if user_path and (user_path / "table_annovar.pl").exists():
+                annovar = user_path
+                console.print(f"  [green]✔[/green]  ANNOVAR: [cyan]{annovar}[/cyan]")
+            else:
+                console.print("  [red]✘[/red]  table_annovar.pl not found at that path.")
 
     return gatk, annovar
 
@@ -486,22 +507,71 @@ def _step_bundled_tools() -> tuple[Path | None, Path | None]:
 # Step 2 — System tools
 # ---------------------------------------------------------------------------
 
+def _step_bootstrap_micromamba() -> Path | None:
+    """
+    Download a self-contained micromamba binary into ~/.exomeflow/conda/ —
+    used only when neither conda nor mamba is already on PATH, so
+    bwa/samtools/fastp/perl can still be auto-installed without requiring
+    the user to install Miniconda themselves first. No installer, no shell
+    init: it's a single ~7 MB static binary.
+    """
+    if MICROMAMBA_BIN.is_file():
+        return MICROMAMBA_BIN
+
+    console.print("  [yellow]→[/yellow]  conda/mamba not found — bootstrapping micromamba (~7 MB) ...")
+    MICROMAMBA_BIN.parent.mkdir(parents=True, exist_ok=True)
+    archive = MICROMAMBA_DIR / "micromamba.tar.bz2"
+
+    if not _download_file(MICROMAMBA_URL, archive):
+        console.print("  [red]✘[/red]  micromamba download failed.")
+        return None
+
+    try:
+        with tarfile.open(archive) as tf:
+            member = tf.getmember("bin/micromamba")
+            member.name = MICROMAMBA_BIN.name
+            tf.extract(member, MICROMAMBA_BIN.parent)
+    except Exception as exc:
+        console.print(f"  [red]✘[/red]  micromamba archive extraction failed: {exc}")
+        return None
+    finally:
+        archive.unlink(missing_ok=True)
+
+    if not MICROMAMBA_BIN.is_file():
+        console.print(f"  [red]✘[/red]  micromamba extracted but binary not found at {MICROMAMBA_BIN}")
+        return None
+
+    MICROMAMBA_BIN.chmod(MICROMAMBA_BIN.stat().st_mode | 0o111)
+    console.print(f"  [green]✔[/green]  micromamba installed: [cyan]{MICROMAMBA_BIN}[/cyan]")
+    return MICROMAMBA_BIN
+
+
 def _step_system_tools(outdated: frozenset[str] = frozenset()) -> list[str]:
     """
-    Install missing system tools via conda; force-upgrade any already on
-    PATH but below the required minimum version (*outdated*). Returns list
-    of failures.
+    Install missing system tools via conda/mamba, or a self-bootstrapped
+    micromamba if neither is present; force-upgrade any already on PATH but
+    below the required minimum version (*outdated*). Returns list of
+    failures.
     """
     console.print(Panel("[bold]Step 2 — System Tools[/bold]", style="blue"))
     failures = []
 
     conda = shutil.which("conda") or shutil.which("mamba")
+    using_micromamba = False
     if not conda:
-        console.print(
-            "  [yellow]⚠[/yellow]  conda/mamba not found — cannot auto-install tools.\n"
-            "  Install Miniconda: [cyan]https://docs.conda.io/en/latest/miniconda.html[/cyan]"
-        )
-        return ["conda not found — install tools manually"]
+        bootstrapped = _step_bootstrap_micromamba()
+        if not bootstrapped:
+            console.print(
+                "  [red]✘[/red]  Could not auto-install a package manager.\n"
+                "  Install Miniconda manually: [cyan]https://docs.conda.io/en/latest/miniconda.html[/cyan]"
+            )
+            return ["conda not found and micromamba bootstrap failed — install tools manually"]
+        conda = str(bootstrapped)
+        using_micromamba = True
+        MICROMAMBA_ENV.mkdir(parents=True, exist_ok=True)
+        env_bin = str(MICROMAMBA_ENV / "bin")
+        if env_bin not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = env_bin + os.pathsep + os.environ.get("PATH", "")
 
     for binary, spec in _SYSTEM_TOOLS:
         if shutil.which(binary) and binary not in outdated:
@@ -510,7 +580,17 @@ def _step_system_tools(outdated: frozenset[str] = frozenset()) -> list[str]:
         verb = "Upgrading" if binary in outdated else "Installing"
         console.print(f"  [yellow]→[/yellow]  {verb} {binary} ...")
         channel, pkg = spec.split("::")
-        ok = _run_silent([conda, "install", "-y", "-c", channel, pkg])
+        if using_micromamba:
+            # "create" (not "install") — micromamba's "install" refuses to
+            # target a prefix that isn't already a created environment, but
+            # "create" against an existing prefix just adds the package
+            # alongside what's already there (verified: safe to call
+            # repeatedly against the same fixed MICROMAMBA_ENV prefix).
+            cmd = [conda, "create", "-y", "-p", str(MICROMAMBA_ENV),
+                   "-c", channel, "-c", "conda-forge", pkg]
+        else:
+            cmd = [conda, "install", "-y", "-c", channel, pkg]
+        ok = _run_silent(cmd, timeout_s=1800)
         if ok:
             console.print(f"  [green]✔[/green]  {binary} installed")
         else:
@@ -1101,10 +1181,19 @@ def check_and_fix_dependencies(
         annovar_bin = detect_annovar_bin()
         if annovar_bin is None:
             console.print(
-                "  [red]✘[/red]  ANNOVAR not found. Place the [cyan]annovar/[/cyan] folder "
-                "inside the ExomeFlow directory.\n"
-                "  Register + download: https://annovar.openbioinformatics.org"
+                "  [red]✘[/red]  ANNOVAR not found automatically.\n"
+                "  Register (free) and download at: "
+                "[cyan]https://annovar.openbioinformatics.org[/cyan]\n"
+                "  Extract the tar.gz anywhere on disk — it doesn't need to be inside\n"
+                "  any particular folder."
             )
+            if not assume_yes and _ask("Already have ANNOVAR downloaded and extracted somewhere?"):
+                user_path = _ask_path("Enter the path to the directory containing table_annovar.pl")
+                if user_path and (user_path / "table_annovar.pl").exists():
+                    annovar_bin = user_path
+                    console.print(f"  [green]✔[/green]  ANNOVAR: [cyan]{annovar_bin}[/cyan]")
+        if annovar_bin is None:
+            console.print("  [red]✘[/red]  ANNOVAR is required. Cannot continue.")
             raise SystemExit(1)
         default_db = Path(cfg.get("annovar_db", annovar_bin / "humandb"))
         resolved_db, db_failures = _step_annovar_databases(
@@ -1157,6 +1246,149 @@ def _find_ref(directory: Path, canonical: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Read-only pre-flight report (`exomeflow doctor`) — never downloads,
+# installs, or writes config; safe to run any time.
+# ---------------------------------------------------------------------------
+
+def run_doctor(genome_build: str | None = None) -> None:
+    """
+    Print one consolidated report of every dependency ExomeFlow needs:
+    found/missing, and — critically — whether a missing one will resolve
+    itself automatically on the next `exomeflow run`/`exomeflow setup`, or
+    needs the user to go do something first (this only ever applies to
+    ANNOVAR, which requires free registration before it can be downloaded —
+    every other dependency here auto-resolves).
+
+    Purely diagnostic: makes no network requests, installs nothing, and
+    never writes ~/.exomeflow/config.json.
+    """
+    from rich.panel import Panel
+
+    cfg = load_config()
+    genome_build = genome_build or cfg.get("genome_build") or "hg38"
+
+    table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+    table.add_column("Category",      style="bold white", min_width=22)
+    table.add_column("Dependency",    style="white",       min_width=30)
+    table.add_column("Status",        justify="center",    min_width=14)
+    table.add_column("If missing",    style="dim",          min_width=28)
+
+    py_ver = ".".join(str(v) for v in sys.version_info[:3])
+    py_ok = sys.version_info[:2] >= (3, 9)
+    table.add_row(
+        "Python", f"Interpreter ({py_ver})",
+        "[green]✔ found[/green]" if py_ok else "[red]✘ too old[/red]",
+        "" if py_ok else "Upgrade to Python >= 3.9",
+    )
+
+    conda = shutil.which("conda") or shutil.which("mamba")
+    conda_status = "[green]✔ found[/green]" if conda else (
+        "[yellow]⚠ bootstrapped[/yellow]" if MICROMAMBA_BIN.is_file() else "[yellow]⚠ missing[/yellow]"
+    )
+    table.add_row(
+        "Package manager", "conda / mamba (for bwa/samtools/fastp/perl)", conda_status,
+        "" if conda or MICROMAMBA_BIN.is_file()
+        else "Auto-bootstraps a local micromamba — no action needed",
+    )
+
+    gatk_path = detect_gatk_bin()
+    for name, version_cmd, label, min_version in _TOOL_CHECKS:
+        if name == "gatk":
+            present, found_ver = gatk_path is not None, ""
+        else:
+            present = bool(shutil.which(name))
+            found_ver = ""
+        version_ok = True
+        if present and (shutil.which(name) or name == "gatk"):
+            check_cmd = version_cmd if shutil.which(name) else None
+            if check_cmd:
+                version_ok, found_ver = _tool_version_ok(check_cmd, min_version)
+        ok = present and version_ok
+        if present and found_ver and not version_ok:
+            status = f"[yellow]⚠ {found_ver} < {min_version}[/yellow]"
+        else:
+            status = "[green]✔ found[/green]" if ok else "[red]✘ missing[/red]"
+        table.add_row(
+            "Tools" if name == "bwa" else "", f"{label} ({name})", status,
+            "" if ok else "Auto-installed on next setup/run",
+        )
+
+    for key, label in _REF_KEYS:
+        val = cfg.get(key)
+        ok = bool(val and Path(val).exists())
+        table.add_row(
+            "References" if key == "reference" else "", label,
+            "[green]✔ found[/green]" if ok else "[red]✘ missing[/red]",
+            "" if ok else "Auto-downloaded on next setup/run",
+        )
+
+    annovar_bin = detect_annovar_bin()
+    table.add_row(
+        "ANNOVAR", "Scripts directory (annovar_bin)",
+        "[green]✔ found[/green]" if annovar_bin else "[red]✘ missing[/red]",
+        "" if annovar_bin else "Register + download yourself — see below",
+    )
+    annovar_db = Path(cfg["annovar_db"]) if cfg.get("annovar_db") else (
+        detect_annovar_humandb(genome_build) if annovar_bin else None
+    )
+    db_ok = False
+    if annovar_db and annovar_db.exists():
+        db_ok, _ = annovar_databases_complete(annovar_db, genome_build)
+    table.add_row(
+        "", "Annotation databases (annovar_db)",
+        "[green]✔ found[/green]" if db_ok else "[red]✘ missing[/red]",
+        "" if db_ok else ("Auto-downloaded once ANNOVAR itself is set up" if annovar_bin
+                           else "Needs ANNOVAR itself first"),
+    )
+
+    intervar = detect_intervar_bin()
+    table.add_row(
+        "Optional extras", "InterVar (ACMG classification)",
+        "[green]✔ found[/green]" if intervar else "[yellow]⚠ missing[/yellow]",
+        "" if intervar else "Auto-installed; degrades gracefully if it can't be",
+    )
+    from exomeflow.hpo_annotation import HPO_MAPPING_FILE
+    hpo_ok = HPO_MAPPING_FILE.exists()
+    table.add_row(
+        "", "HPO gene-phenotype mapping",
+        "[green]✔ found[/green]" if hpo_ok else "[yellow]⚠ missing[/yellow]",
+        "" if hpo_ok else "Auto-downloaded; degrades gracefully if it can't be",
+    )
+    multiqc_ok = bool(shutil.which("multiqc"))
+    table.add_row(
+        "", "MultiQC (cohort QC rollup)",
+        "[green]✔ found[/green]" if multiqc_ok else "[yellow]⚠ missing[/yellow]",
+        "" if multiqc_ok else "Auto-installed via pip; degrades gracefully if it can't be",
+    )
+
+    console.print()
+    console.print(Panel(table, title="[bold]ExomeFlow — Doctor[/bold]",
+                        border_style="blue", expand=False))
+
+    if not annovar_bin:
+        console.print(
+            "\n  [yellow]⚠  ANNOVAR is the one dependency that can't be auto-installed[/yellow] "
+            "— it requires free\n"
+            "  personal registration before its own site will hand out a download link "
+            "(that's\n"
+            "  ANNOVAR's license, not a limitation of ExomeFlow). Everything else in this "
+            "report\n"
+            "  resolves itself automatically the next time you run "
+            "[cyan]exomeflow setup[/cyan] or\n"
+            "  [cyan]exomeflow run[/cyan].\n\n"
+            "  1. Register + download: [cyan]https://annovar.openbioinformatics.org[/cyan]\n"
+            "  2. Extract the tar.gz anywhere on disk\n"
+            "  3. Run [cyan]exomeflow setup[/cyan] — it will ask for the path "
+            "interactively\n"
+        )
+    else:
+        console.print(
+            "\n  Run [cyan]exomeflow setup[/cyan] to resolve anything still missing above, "
+            "or just\n  [cyan]exomeflow run[/cyan] — first-run setup happens automatically.\n"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -1184,7 +1416,7 @@ def run_setup(
     genome_build = _ask_genome_build(genome_build or load_config().get("genome_build"), assume_yes)
 
     # ── Step 1: Bundled GATK + ANNOVAR ──────────────────────────────────────
-    gatk_path, resolved_annovar_bin = _step_bundled_tools()
+    gatk_path, resolved_annovar_bin = _step_bundled_tools(assume_yes=assume_yes)
     if gatk_path:
         config["gatk_bin"] = gatk_path
     effective_annovar_bin = annovar_bin or resolved_annovar_bin

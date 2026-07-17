@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.2.0
+
+Focused on the "just-installed, not-technically-sound user" path: `pip install
+exomeflow` → `exomeflow setup` → `exomeflow run` with as little manual work in
+between as actually achievable.
+
+### Added
+
+- **Auto-bootstrapped micromamba** — `bwa`/`samtools`/`fastp`/`perl` used to
+  require conda or mamba already on `PATH`, with a hard stop and "go install
+  Miniconda yourself" if neither was found. Now, when neither is present,
+  ExomeFlow downloads a small (~7 MB) self-contained micromamba binary into
+  `~/.exomeflow/conda/` and uses it to install the missing tools into an
+  isolated prefix — no separate manual install step required first.
+- **`exomeflow doctor`** — a new, read-only pre-flight command that reports
+  every dependency's status (found/missing) plus whether it will resolve
+  itself automatically or needs manual action, before any setup or download
+  starts. Makes no network requests and never writes config; safe to run any
+  time, including before the very first `exomeflow run`.
+- `exomeflow --version` now also prints the author/institution/contact line.
+
+### Fixed
+
+- **ANNOVAR "not found" messaging was wrong for a real install** — it said
+  "place the annovar/ folder inside the ExomeFlow directory," which is
+  leftover text from a dev-checkout layout; for a `pip install`, there is no
+  such directory. Corrected the message, and — matching the interactive
+  prompt that already existed for the ANNOVAR *database* directory — added
+  the same "where did you put it?" prompt for the ANNOVAR *scripts*
+  directory, at all three places this was previously a hard, message-only
+  stop (`exomeflow setup`'s pre-flight gate, `_step_bundled_tools`, and
+  `check_and_fix_dependencies`'s auto-fix path). `exomeflow setup` no longer
+  exits before even starting if ANNOVAR isn't auto-detected — GATK, system
+  tools, and reference files still get set up regardless, since ANNOVAR is
+  the one piece that can't be resolved without the user's own registered
+  download.
+
 ## 2.1.3
 
 ### Added

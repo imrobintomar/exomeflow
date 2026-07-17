@@ -15,7 +15,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from exomeflow import __version__
+from exomeflow import __author__, __email__, __version__
 
 _HELP = """
 [bold cyan]ExomeFlow[/bold cyan] — Production Whole Exome/Genome Sequencing pipeline.
@@ -31,10 +31,15 @@ _HELP = """
 [bold]Commands[/bold]
   [green]run[/green]     Execute the full WES analysis pipeline on paired FASTQ files
   [green]setup[/green]   Re-run setup (change reference paths, download new databases)
+  [green]doctor[/green]  Read-only pre-flight report of what's found/missing, before you run
 
 [bold]What happens on first run[/bold]
-  1. GATK and ANNOVAR are detected — or auto-downloaded/cloned if missing
-  2. Missing tools (bwa, samtools, fastp, perl) are installed via conda
+  1. GATK is auto-detected or auto-downloaded. ANNOVAR is auto-detected, or
+     you're prompted for where you extracted it (it requires free personal
+     registration before download — the one thing that can't be automated;
+     run [green]exomeflow doctor[/green] any time to see exactly what's missing)
+  2. Missing tools (bwa, samtools, fastp, perl) are installed via conda/mamba
+     — or a self-bootstrapped micromamba if neither is already installed
   3. You are asked for hg38/GRCh37 reference paths (or they are downloaded)
   4. You are asked for ANNOVAR database paths (or they are downloaded)
   5. HPO, InterVar (ACMG), and MultiQC are provisioned automatically too
@@ -63,6 +68,7 @@ console = Console()
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"ExomeFlow v{__version__}")
+        console.print(f"{__author__}, AIIMS New Delhi <{__email__}>")
         raise typer.Exit()
 
 
@@ -330,7 +336,8 @@ def setup_command(
     ),
     annovar_bin: Optional[Path] = typer.Option(
         None, "--annovar-bin",
-        help="ANNOVAR directory. Auto-detected from ExomeFlow folder if omitted.",
+        help="ANNOVAR directory. Auto-detected (saved config, then common "
+             "locations) if omitted — you'll be prompted for it if not found.",
     ),
     annovar_db: Optional[Path] = typer.Option(
         None, "--annovar-db",
@@ -372,27 +379,50 @@ def setup_command(
       --annovar-bin /opt/annovar \\
       --annovar-db  /opt/annovar/humandb
     """
-    from exomeflow.setup_env import detect_annovar_bin, run_setup
+    from exomeflow.setup_env import run_setup
 
     _validate_genome_build(genome_build)
 
-    resolved_bin = annovar_bin or detect_annovar_bin()
-    if resolved_bin is None:
-        console.print(
-            "  [red]✘[/red]  ANNOVAR not found. Place the [cyan]annovar/[/cyan] folder "
-            "inside the ExomeFlow directory.\n"
-            "  Register + download: https://annovar.openbioinformatics.org"
-        )
-        raise typer.Exit(code=1)
-
-    resolved_db = annovar_db or (resolved_bin / "humandb")
-
+    # ANNOVAR resolution (auto-detect, then an interactive path prompt if not
+    # found) happens inside run_setup() itself now, so the rest of setup
+    # (GATK, system tools, reference files) still completes even when
+    # ANNOVAR isn't resolved yet — it doesn't have to block everything else.
     failed = run_setup(
         refs_dir=refs_dir,
-        annovar_bin=resolved_bin,
-        annovar_db=resolved_db,
+        annovar_bin=annovar_bin,
+        annovar_db=annovar_db,
         existing_refs_dir=existing_refs,
         genome_build=genome_build,
         assume_yes=assume_yes,
     )
     raise typer.Exit(code=min(failed, 1))
+
+
+@app.command("doctor")
+def doctor_command(
+    genome_build: Optional[str] = typer.Option(
+        None, "--genome-build",
+        help="Check ANNOVAR database completeness against this build. "
+             "Defaults to the saved choice, or hg38.",
+    ),
+) -> None:
+    """
+    Pre-flight report: what's found, what's missing, and what will/won't
+    resolve itself automatically.
+
+    \b
+    Read-only — makes no network requests, installs nothing, and never
+    writes ~/.exomeflow/config.json. Safe to run any time, including
+    before your first `exomeflow run`, to see the whole picture upfront
+    instead of hitting each gap one at a time mid-setup.
+
+    \b
+    Examples
+    --------
+    exomeflow doctor
+    exomeflow doctor --genome-build GRCh37
+    """
+    from exomeflow.setup_env import run_doctor
+
+    _validate_genome_build(genome_build)
+    run_doctor(genome_build=genome_build)
