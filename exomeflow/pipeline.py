@@ -174,7 +174,7 @@ def run_pipeline(cfg: "Config") -> int:
     get_pipeline_logger(cfg.log_dir, timestamp)
 
     logger.info("=" * 50)
-    logger.info("ExomeFlow — Whole Exome Sequencing Analysis Pipeline")
+    logger.info("ExomeFlow - Automated Whole Exome Sequencing Analysis ython Package")
     logger.info("=" * 50)
     logger.info("Author  : Robin Kumar")
     logger.info("Affil.  : Dr Prabudh Goel Lab, All India Institute of Medical Sciences (AIIMS), New Delhi")
@@ -182,11 +182,10 @@ def run_pipeline(cfg: "Config") -> int:
     logger.info("Version : %s", __import__("exomeflow").__version__)
     logger.info("Mode    : %s | build=%s | joint-genotyping=%s | cnv=%s",
                 cfg.mode, cfg.genome_build, cfg.joint_genotyping, cfg.call_cnv)
-    logger.info("Citation: Tomar R. ExomeFlow: A Python-based production-quality")
-    logger.info("          Whole Exome Sequencing analysis pipeline.")
-    logger.info("          PyPI:   https://pypi.org/project/exomeflow")
+   
+    logger.info("PyPI:   https://pypi.org/project/exomeflow")
     logger.info("=" * 50)
-    logger.info("Parallel mode — up to %d samples simultaneously", cfg.max_workers)
+    logger.info("Parallel mode - up to %d samples simultaneously", cfg.max_workers)
     logger.info("Started at: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     # Dependency/reference resolution already happened in cli.py's
