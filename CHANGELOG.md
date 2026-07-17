@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.2.2
+
+### Fixed
+
+- **ANNOVAR completeness checks didn't verify the paired `.idx` index
+  file** — ANNOVAR's `-downdb -webfrom annovar` fetches a filter-type
+  database's `.txt` data and its `.idx` index together, but a connection
+  drop partway through could land the `.txt` without its `.idx`. Both
+  `annovar_databases_complete()` (the pre-flight check) and
+  `_step_annovar_databases()`'s download loop (which decided what to skip
+  as "already present") only ever checked for the `.txt` file. A database
+  missing only its index would be reported complete and never re-fetched.
+  refGene is gene-based and has no `.idx` pair, so it's exempt from this
+  check.
+
+### Changed
+
+- `exomeflow run`'s pipeline-start banner now also lists lab affiliation
+  and no longer prints a GitHub link.
+
 ## 2.2.1
 
 ### Fixed

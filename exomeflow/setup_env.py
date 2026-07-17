@@ -723,10 +723,22 @@ def annovar_databases_complete(annovar_db: Path, genome_build: str = "hg38") -> 
     bare directory-exists check, so a database deleted after initial setup
     (or a build mismatch) went undetected until table_annovar.pl failed
     hours into a run instead of being caught in seconds up front.
+
+    Filter-type ("f" operation) databases also need their paired .idx file —
+    ANNOVAR's `-downdb -webfrom annovar` fetches both files together, but a
+    connection drop partway through the paired download can land the .txt
+    without its .idx. refGene is gene-based ("g" operation) and doesn't use
+    this index format, so it's exempt.
     """
     buildver = ANNOVAR_BUILDVER[genome_build]
     required = ANNOVAR_DATABASES_BY_BUILD[genome_build]
-    missing = [d for d, _, _ in required if not (annovar_db / f"{buildver}_{d}.txt").exists()]
+    missing = []
+    for d, _, _ in required:
+        txt = annovar_db / f"{buildver}_{d}.txt"
+        if not txt.exists():
+            missing.append(d)
+        elif d != "refGene" and not Path(str(txt) + ".idx").exists():
+            missing.append(d)
     return not missing, missing
 
 
@@ -829,7 +841,12 @@ def _step_annovar_databases(
 
     for db_name, description, size_mb in required:
         db_file = db_dir / f"{buildver}_{db_name}.txt"
-        if db_file.exists():
+        # refGene is gene-based ("g" operation) and has no .idx pair; every
+        # other database here is filter-type ("f") and needs both files —
+        # re-download (ANNOVAR fetches the pair together) if either is
+        # missing, matching annovar_databases_complete()'s own check.
+        idx_ok = db_name == "refGene" or Path(str(db_file) + ".idx").exists()
+        if db_file.exists() and idx_ok:
             console.print(f"  [green]✔[/green]  {db_name} already present")
             continue
         console.print(f"  [cyan]→[/cyan]  Downloading {db_name} ({description}, ~{size_mb:,} MB) ...")

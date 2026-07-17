@@ -14,11 +14,20 @@ from exomeflow.setup_env import (
 )
 
 
+def _touch_complete_humandb(db_dir: Path, genome_build: str) -> None:
+    """Create .txt (+ .idx for everything but refGene) for every required db."""
+    buildver = "hg19" if genome_build == "GRCh37" else "hg38"
+    for name, _, _ in ANNOVAR_DATABASES_BY_BUILD[genome_build]:
+        txt = db_dir / f"{buildver}_{name}.txt"
+        txt.touch()
+        if name != "refGene":
+            Path(str(txt) + ".idx").touch()
+
+
 def test_annovar_databases_complete_detects_missing_file(tmp_path: Path):
     db_dir = tmp_path / "humandb"
     db_dir.mkdir()
-    for name, _, _ in ANNOVAR_DATABASES_BY_BUILD["hg38"]:
-        (db_dir / f"hg38_{name}.txt").touch()
+    _touch_complete_humandb(db_dir, "hg38")
 
     complete, missing = annovar_databases_complete(db_dir, "hg38")
     assert complete
@@ -30,11 +39,28 @@ def test_annovar_databases_complete_detects_missing_file(tmp_path: Path):
     assert "clinvar_20240611" in missing
 
 
+def test_annovar_databases_complete_detects_missing_idx(tmp_path: Path):
+    db_dir = tmp_path / "humandb"
+    db_dir.mkdir()
+    _touch_complete_humandb(db_dir, "hg38")
+
+    # .txt present but its paired .idx missing (e.g. an interrupted
+    # download) must still count as incomplete — refGene is exempt since
+    # it's gene-based and has no .idx pair.
+    (db_dir / "hg38_avsnp150.txt.idx").unlink()
+    complete, missing = annovar_databases_complete(db_dir, "hg38")
+    assert not complete
+    assert "avsnp150" in missing
+
+    (db_dir / "hg38_refGene.txt.idx").unlink(missing_ok=True)
+    complete, missing = annovar_databases_complete(db_dir, "hg38")
+    assert "refGene" not in missing
+
+
 def test_annovar_databases_complete_is_build_aware(tmp_path: Path):
     db_dir = tmp_path / "humandb"
     db_dir.mkdir()
-    for name, _, _ in ANNOVAR_DATABASES_BY_BUILD["hg38"]:
-        (db_dir / f"hg38_{name}.txt").touch()
+    _touch_complete_humandb(db_dir, "hg38")
 
     # hg38 files present, but requesting GRCh37 completeness must not be
     # satisfied by them (different buildver prefix, different db names).
@@ -206,11 +232,10 @@ def test_step_annovar_databases_downloads_missing_db_on_partial_match(tmp_path, 
     db_dir = tmp_path / "humandb"
     db_dir.mkdir()
     buildver = "hg38"
-    all_dbs = [name for name, _, _ in ANNOVAR_DATABASES_BY_BUILD["hg38"]]
     missing_db = "clinvar_20240611"
-    for name in all_dbs:
-        if name != missing_db:
-            (db_dir / f"{buildver}_{name}.txt").touch()
+    _touch_complete_humandb(db_dir, "hg38")
+    (db_dir / f"{buildver}_{missing_db}.txt").unlink()
+    (db_dir / f"{buildver}_{missing_db}.txt.idx").unlink()
 
     downloaded = []
 
@@ -220,6 +245,7 @@ def test_step_annovar_databases_downloads_missing_db_on_partial_match(tmp_path, 
         db_name = cmd[7]
         downloaded.append(db_name)
         (db_dir / f"{buildver}_{db_name}.txt").touch()
+        (db_dir / f"{buildver}_{db_name}.txt.idx").touch()
         return True
 
     monkeypatch.setattr(setup_env, "_run_visible", _fake_run_visible)
@@ -243,9 +269,7 @@ def test_step_annovar_databases_no_download_when_already_complete(tmp_path, monk
 
     db_dir = tmp_path / "humandb"
     db_dir.mkdir()
-    buildver = "hg38"
-    for name, _, _ in ANNOVAR_DATABASES_BY_BUILD["hg38"]:
-        (db_dir / f"{buildver}_{name}.txt").touch()
+    _touch_complete_humandb(db_dir, "hg38")
 
     def _fail_if_called(*a, **k):
         raise AssertionError("should not attempt any download when already complete")
