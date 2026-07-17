@@ -3,7 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from exomeflow.utils import Checkpoint, _parse_version, _version_ok, count_variants, detect_samples
+from exomeflow.utils import (
+    Checkpoint,
+    _parse_version,
+    _version_ok,
+    count_variants,
+    detect_samples,
+    resolve_fastq_pair,
+)
 
 
 def test_detect_samples_pairs_by_prefix(tmp_path: Path):
@@ -22,6 +29,39 @@ def test_detect_samples_ignores_non_matching_files(tmp_path: Path):
 def test_detect_samples_raises_when_empty(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         detect_samples(tmp_path)
+
+
+def test_detect_samples_accepts_r1_r2_convention(tmp_path: Path):
+    for name in ["s1_R1.fastq.gz", "s1_R2.fastq.gz", "s2_R1.fastq.gz", "s2_R2.fastq.gz"]:
+        (tmp_path / name).touch()
+    assert detect_samples(tmp_path) == ["s1", "s2"]
+
+
+def test_detect_samples_mixed_conventions(tmp_path: Path):
+    for name in ["s1_1.fastq.gz", "s1_2.fastq.gz", "s2_R1.fastq.gz", "s2_R2.fastq.gz"]:
+        (tmp_path / name).touch()
+    assert detect_samples(tmp_path) == ["s1", "s2"]
+
+
+def test_resolve_fastq_pair_prefers_underscore_numeric(tmp_path: Path):
+    (tmp_path / "s1_1.fastq.gz").touch()
+    (tmp_path / "s1_2.fastq.gz").touch()
+    r1, r2 = resolve_fastq_pair(tmp_path, "s1")
+    assert r1.name == "s1_1.fastq.gz"
+    assert r2.name == "s1_2.fastq.gz"
+
+
+def test_resolve_fastq_pair_falls_back_to_r1_r2(tmp_path: Path):
+    (tmp_path / "s1_R1.fastq.gz").touch()
+    (tmp_path / "s1_R2.fastq.gz").touch()
+    r1, r2 = resolve_fastq_pair(tmp_path, "s1")
+    assert r1.name == "s1_R1.fastq.gz"
+    assert r2.name == "s1_R2.fastq.gz"
+
+
+def test_resolve_fastq_pair_raises_when_missing(tmp_path: Path):
+    with pytest.raises(FileNotFoundError):
+        resolve_fastq_pair(tmp_path, "nope")
 
 
 def test_checkpoint_mark_and_done(tmp_path: Path):

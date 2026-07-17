@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from exomeflow.utils import Checkpoint, run_cmd
+from exomeflow.utils import Checkpoint, resolve_fastq_pair, run_cmd
 
 if TYPE_CHECKING:
     from exomeflow.config import Config
@@ -28,8 +28,8 @@ def run_fastp(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
 
     Input
     -----
-    <input_dir>/<sample>_1.fastq.gz
-    <input_dir>/<sample>_2.fastq.gz
+    <input_dir>/<sample>_1.fastq.gz  or  <input_dir>/<sample>_R1.fastq.gz
+    <input_dir>/<sample>_2.fastq.gz  or  <input_dir>/<sample>_R2.fastq.gz
 
     Output
     ------
@@ -42,14 +42,7 @@ def run_fastp(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
         logger.info("[%s] fastp already completed, skipping.", sample)
         return
 
-    r1 = cfg.input_dir / f"{sample}_1.fastq.gz"
-    r2 = cfg.input_dir / f"{sample}_2.fastq.gz"
-
-    for fq in (r1, r2):
-        if not fq.exists():
-            raise FileNotFoundError(
-                f"[{sample}] FASTQ file not found: {fq}"
-            )
+    r1, r2 = resolve_fastq_pair(cfg.input_dir, sample)
 
     out_r1 = cfg.fastp_dir / f"{sample}_1_filtered.fastq.gz"
     out_r2 = cfg.fastp_dir / f"{sample}_2_filtered.fastq.gz"

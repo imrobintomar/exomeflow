@@ -110,7 +110,7 @@ def run_command(
     input_dir: Path = typer.Option(
         ...,
         "--input-dir", "-i",
-        help="Directory containing paired FASTQ files (*_1.fastq.gz / *_2.fastq.gz).",
+        help="Directory containing paired FASTQ files (*_1.fastq.gz/*_2.fastq.gz or *_R1.fastq.gz/*_R2.fastq.gz).",
         exists=True, file_okay=False, dir_okay=True, readable=True,
     ),
     output: Path = typer.Option(

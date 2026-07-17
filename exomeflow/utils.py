@@ -125,15 +125,16 @@ def detect_samples(input_dir: Path) -> list[str]:
     """
     Scan *input_dir* for paired FASTQ files and return sorted sample IDs.
 
-    Expected naming convention::
+    Two naming conventions are accepted, per sample::
 
-        <sample_id>_1.fastq.gz
-        <sample_id>_2.fastq.gz
+        <sample_id>_1.fastq.gz   / <sample_id>_2.fastq.gz
+        <sample_id>_R1.fastq.gz  / <sample_id>_R2.fastq.gz
 
-    Any base name matching ``*_1.fastq.gz`` is considered a sample; its
-    partner ``*_2.fastq.gz`` is expected to exist (validated later per-step).
+    Any base name matching ``*_1.fastq.gz`` or ``*_R1.fastq.gz`` is considered
+    a sample; its ``_2``/``_R2`` partner is expected to exist (validated later
+    per-step, see ``resolve_fastq_pair``).
     """
-    pattern = re.compile(r"^(.+)_1\.fastq\.gz$")
+    pattern = re.compile(r"^(.+)_R?1\.fastq\.gz$")
     samples: set[str] = set()
 
     for f in input_dir.glob("*.fastq.gz"):
@@ -143,10 +144,30 @@ def detect_samples(input_dir: Path) -> list[str]:
 
     if not samples:
         raise FileNotFoundError(
-            f"No paired FASTQ files (matching *_1.fastq.gz) found in {input_dir}"
+            f"No paired FASTQ files (matching *_1.fastq.gz or *_R1.fastq.gz) "
+            f"found in {input_dir}"
         )
 
     return sorted(samples)
+
+
+def resolve_fastq_pair(input_dir: Path, sample: str) -> tuple[Path, Path]:
+    """
+    Return the (R1, R2) FASTQ paths for *sample*, trying ``_1``/``_2`` first
+    and falling back to ``_R1``/``_R2`` — the two conventions accepted by
+    ``detect_samples``.
+    """
+    for suffix1, suffix2 in (("_1.fastq.gz", "_2.fastq.gz"), ("_R1.fastq.gz", "_R2.fastq.gz")):
+        r1 = input_dir / f"{sample}{suffix1}"
+        r2 = input_dir / f"{sample}{suffix2}"
+        if r1.exists() and r2.exists():
+            return r1, r2
+
+    raise FileNotFoundError(
+        f"No paired FASTQ files for sample '{sample}' in {input_dir} "
+        f"(tried {sample}_1.fastq.gz/{sample}_2.fastq.gz and "
+        f"{sample}_R1.fastq.gz/{sample}_R2.fastq.gz)"
+    )
 
 
 # ---------------------------------------------------------------------------

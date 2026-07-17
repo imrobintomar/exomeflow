@@ -122,7 +122,7 @@ gsutil -m cp -r gs://gatk-best-practices/somatic-hg38/ .
 ### FASTQ naming convention
 
 ExomeFlow automatically detects samples from paired-end FASTQ files.  
-Your files **must** follow this exact naming pattern:
+Two naming conventions are accepted — pick whichever matches your data:
 
 ```
 fastq/
@@ -130,14 +130,17 @@ fastq/
 ├── sample1_2.fastq.gz      ← Read 2
 ├── sample2_1.fastq.gz
 ├── sample2_2.fastq.gz
-├── sample3_1.fastq.gz
-└── sample3_2.fastq.gz
+├── sample3_R1.fastq.gz     ← Read 1 (alternate convention)
+└── sample3_R2.fastq.gz     ← Read 2 (alternate convention)
 ```
 
-Pattern: `<sample_id>_1.fastq.gz` and `<sample_id>_2.fastq.gz`
+Pattern: `<sample_id>_1.fastq.gz` / `<sample_id>_2.fastq.gz`,
+or `<sample_id>_R1.fastq.gz` / `<sample_id>_R2.fastq.gz`.
 
 The `sample_id` can be any string (SRR accession, patient ID, etc.)  
-as long as both read files share the same prefix.
+as long as both read files share the same prefix and convention. A single
+run can mix samples using different conventions (e.g. `sample1_1.fastq.gz`
+alongside `sample2_R1.fastq.gz`) — the convention is resolved per sample.
 
 ### Recommended directory layout
 
@@ -390,11 +393,12 @@ EnvironmentError: Requirements check failed — fix the following issues:
 ### No FASTQ files found
 
 ```
-FileNotFoundError: No paired FASTQ files (matching *_1.fastq.gz) found in fastq/
+FileNotFoundError: No paired FASTQ files (matching *_1.fastq.gz or *_R1.fastq.gz) found in fastq/
 ```
 
-**Fix:** Check that your files follow the naming convention:
-`<sample_id>_1.fastq.gz` and `<sample_id>_2.fastq.gz`
+**Fix:** Check that your files follow one of the two accepted naming conventions:
+`<sample_id>_1.fastq.gz` / `<sample_id>_2.fastq.gz`, or
+`<sample_id>_R1.fastq.gz` / `<sample_id>_R2.fastq.gz`
 
 ---
 

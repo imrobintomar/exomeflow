@@ -217,8 +217,14 @@ def save_config(data: dict) -> None:
 def detect_gatk_bin() -> Path | None:
     """
     Return path to the 'gatk' executable.
-    Checks ExomeFlow source root first, then PATH and common locations.
+    Checks the saved config first (so a previously-resolved path survives
+    running the CLI from a different working directory), then ExomeFlow
+    source root, PATH, and common locations.
     """
+    saved = load_config().get("gatk_bin")
+    if saved and Path(saved).is_file():
+        return Path(saved)
+
     source_root = Path(__file__).parent.parent
     for name in [f"gatk-{GATK_VERSION}", "gatk"]:
         p = source_root / name / "gatk"
@@ -284,8 +290,14 @@ def _step_gatk_download() -> Path | None:
 def detect_annovar_bin() -> Path | None:
     """
     Return path to the ANNOVAR directory containing table_annovar.pl.
-    Checks ExomeFlow source root first, then common locations.
+    Checks the saved config first (so a previously-resolved path survives
+    running the CLI from a different working directory), then ExomeFlow
+    source root, then common locations.
     """
+    saved = load_config().get("annovar_bin")
+    if saved and (Path(saved) / "table_annovar.pl").exists():
+        return Path(saved)
+
     candidates = [
         Path(__file__).parent.parent / "annovar",
         Path.cwd() / "annovar",
