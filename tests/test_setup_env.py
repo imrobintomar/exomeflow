@@ -4,10 +4,12 @@ from pathlib import Path
 import exomeflow.setup_env as setup_env
 from exomeflow.setup_env import (
     ANNOVAR_DATABASES_BY_BUILD,
+    SOMATIC_RESOURCES_BY_BUILD,
     _ensure_mim2gene,
     _step_annovar_databases,
     _step_bootstrap_micromamba,
     _step_bundled_tools,
+    _step_somatic_resources,
     _step_system_tools,
     annovar_databases_complete,
     detect_annovar_bin,
@@ -433,3 +435,94 @@ def test_ensure_mim2gene_skips_when_already_present(tmp_path, monkeypatch):
     monkeypatch.setattr(setup_env, "_download_file", _fail_if_called)
 
     _ensure_mim2gene(intervar_dir)
+
+
+def test_step_somatic_resources_skips_already_present_files(tmp_path, monkeypatch):
+    refs_dir = tmp_path / "refs"
+    refs_dir.mkdir()
+    for filename, index_filename, _, _ in SOMATIC_RESOURCES_BY_BUILD["hg38"].values():
+        (refs_dir / filename).touch()
+        (refs_dir / index_filename).touch()
+
+    def _fail_if_called(*a, **k):
+        raise AssertionError("should not download when already present")
+
+    monkeypatch.setattr(setup_env, "_download_file", _fail_if_called)
+    monkeypatch.setattr(setup_env, "_gsutil_cp", _fail_if_called)
+
+    resolved = _step_somatic_resources(refs_dir, "hg38", assume_yes=True)
+    assert set(resolved) == {"germline_resource", "panel_of_normals"}
+    assert resolved["panel_of_normals"] == refs_dir / "1000g_pon.hg38.vcf.gz"
+
+
+def test_step_somatic_resources_downloads_small_pon_without_asking(tmp_path, monkeypatch):
+    refs_dir = tmp_path / "refs"
+
+    downloaded = []
+
+    def _fake_download(url, dest):
+        downloaded.append(dest.name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.touch()
+        return True
+
+    monkeypatch.setattr(setup_env, "_download_file", _fake_download)
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)  # force https path
+
+    def _fail_if_asked(*a, **k):
+        raise AssertionError("should not prompt for the small PoN file")
+
+    # _ask is only exercised for the >1GB germline-resource branch; make the
+    # small PoN path fail loudly if it ever reaches a prompt.
+    real_ask = setup_env._ask
+
+    def _guarded_ask(prompt, *a, **k):
+        if "Panel of Normals" in prompt or "pon" in prompt.lower():
+            _fail_if_asked()
+        return real_ask(prompt, *a, **k)
+
+    monkeypatch.setattr(setup_env, "_ask", _guarded_ask)
+
+    resolved = _step_somatic_resources(refs_dir, "hg38", assume_yes=True)
+    assert "1000g_pon.hg38.vcf.gz" in downloaded
+    assert resolved["panel_of_normals"] == refs_dir / "1000g_pon.hg38.vcf.gz"
+
+
+def test_step_somatic_resources_asks_before_large_germline_resource(tmp_path, monkeypatch):
+    refs_dir = tmp_path / "refs"
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+
+    downloaded = []
+
+    def _fake_download(url, dest):
+        downloaded.append(dest.name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.touch()
+        return True
+
+    # The small PoN (17 MB) never prompts and downloads regardless — this
+    # test is only about the large (>1GB) germline-resource file, which is
+    # independently gated behind its own decline/accept.
+    monkeypatch.setattr(setup_env, "_download_file", _fake_download)
+
+    asked = []
+
+    def _fake_ask(prompt, default_yes=False, assume_yes=False):
+        asked.append(prompt)
+        return False  # decline
+
+    monkeypatch.setattr(setup_env, "_ask", _fake_ask)
+
+    resolved = _step_somatic_resources(refs_dir, "hg38", assume_yes=False)
+    assert any("af-only-gnomad" in p or "gnomAD" in p for p in asked)
+    assert "germline_resource" not in resolved
+    assert resolved["panel_of_normals"] == refs_dir / "1000g_pon.hg38.vcf.gz"
+
+
+def test_step_somatic_resources_gracefully_returns_partial_on_failure(tmp_path, monkeypatch):
+    refs_dir = tmp_path / "refs"
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup_env, "_download_file", lambda url, dest: False)
+
+    resolved = _step_somatic_resources(refs_dir, "hg38", assume_yes=True)
+    assert resolved == {}

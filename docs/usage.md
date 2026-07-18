@@ -47,8 +47,8 @@ effect of batching samples.
 | `--genome-build` | `hg38` | `hg38` or `GRCh37`. |
 | `--joint-genotyping` | off | Cohort mode: one shared VCF instead of per-sample files. |
 | `--cnv` | off | Also call read-depth CNVs per sample (requires `--intervals`). |
-| `--germline-resource` | — | gnomAD AF-only VCF for `--mode somatic` (optional but recommended). |
-| `--panel-of-normals` | — | Pre-built Panel of Normals VCF for `--mode somatic` (optional but recommended). |
+| `--germline-resource` | — | gnomAD AF-only VCF for `--mode somatic`. Auto-downloaded if omitted. |
+| `--panel-of-normals` | — | Panel of Normals VCF for `--mode somatic`. Auto-downloaded if omitted. |
 | `--yes`, `-y` | off | Non-interactive: auto-confirm every setup prompt. |
 
 Any of the auto-resolved paths can be passed explicitly to override the value

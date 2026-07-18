@@ -97,7 +97,7 @@ def _main(
     pass
 
 
-def _ensure_ready(genome_build: Optional[str], call_cnv: bool, assume_yes: bool) -> dict:
+def _ensure_ready(genome_build: Optional[str], call_cnv: bool, assume_yes: bool, mode: str = "germline") -> dict:
     """
     Called at the start of every `exomeflow run`.
     Checks all dependencies, fixes what's missing, returns the resolved config.
@@ -105,7 +105,7 @@ def _ensure_ready(genome_build: Optional[str], call_cnv: bool, assume_yes: bool)
     from exomeflow.setup_env import check_and_fix_dependencies
     try:
         return check_and_fix_dependencies(
-            genome_build=genome_build, call_cnv=call_cnv, assume_yes=assume_yes
+            genome_build=genome_build, call_cnv=call_cnv, assume_yes=assume_yes, mode=mode
         )
     except SystemExit as exc:
         raise typer.Exit(code=int(exc.code or 1))
@@ -175,11 +175,13 @@ def run_command(
     call_cnv: bool = typer.Option(False, "--cnv",
         help="Also call read-depth CNVs per sample (requires --intervals)."),
     germline_resource: Optional[Path] = typer.Option(None, "--germline-resource",
-        help="gnomAD AF-only VCF for Mutect2 (--mode somatic). Optional but recommended."),
+        help="gnomAD AF-only VCF for Mutect2 (--mode somatic). Auto-downloaded "
+             "(GATK's public resource) if omitted — pass this to use your own instead."),
     panel_of_normals: Optional[Path] = typer.Option(None, "--panel-of-normals",
-        help="Pre-built Panel of Normals VCF for Mutect2 (--mode somatic). "
-             "Optional but recommended — filters recurrent sequencing artifacts "
-             "a population AF resource alone won't catch."),
+        help="Panel of Normals VCF for Mutect2 (--mode somatic). Auto-downloaded "
+             "(GATK's public 1000 Genomes PoN) if omitted — pass this to use your own "
+             "instead. Filters recurrent sequencing artifacts a population AF "
+             "resource alone won't catch."),
     assume_yes: bool = typer.Option(False, "--yes", "-y",
         help="Non-interactive: auto-confirm every setup prompt (downloads, etc.) "
              "instead of asking. Needed for unattended/background/CI runs."),
@@ -273,7 +275,7 @@ def run_command(
     # prompt > hg38 default under --yes (see setup_env._ask_genome_build).
     # check_and_fix_dependencies() unconditionally sets cfg["genome_build"]
     # on every path, so it's always present here — no fallback needed.
-    saved = _ensure_ready(genome_build=genome_build, call_cnv=call_cnv, assume_yes=assume_yes)
+    saved = _ensure_ready(genome_build=genome_build, call_cnv=call_cnv, assume_yes=assume_yes, mode=mode)
     genome_build = saved["genome_build"]
 
     # ── Add GATK to PATH if not already there ────────────────────────────
@@ -292,6 +294,16 @@ def run_command(
         if provided is not None:
             return provided
         return Path(saved[key])
+
+    # Same idea, but optional: germline_resource/panel_of_normals are only
+    # ever in `saved` for --mode somatic runs (auto-downloaded by
+    # check_and_fix_dependencies), so a plain _r() would KeyError on any
+    # germline run — fall back to None instead of requiring the key exist.
+    def _r_optional(provided: Optional[Path], key: str) -> Optional[Path]:
+        if provided is not None:
+            return provided
+        val = saved.get(key)
+        return Path(val) if val else None
 
     cfg_overrides: dict = {}
     if annovar_protocols is not None:
@@ -319,8 +331,8 @@ def run_command(
         genome_build=genome_build,
         joint_genotyping=joint_genotyping,
         call_cnv=call_cnv,
-        germline_resource=germline_resource,
-        panel_of_normals=panel_of_normals,
+        germline_resource=_r_optional(germline_resource, "germline_resource"),
+        panel_of_normals=_r_optional(panel_of_normals, "panel_of_normals"),
         **cfg_overrides,
     )
 

@@ -102,6 +102,44 @@ REFERENCE_FILES_BY_BUILD: dict[str, list[tuple[str, str, int]]] = {
     ],
 }
 
+# Mutect2's --germline-resource and --panel-of-normals — both are GATK's own
+# public best-practices resources (no registration required, unlike ANNOVAR/
+# OMIM). GRCh37's are dramatically larger than hg38's (a WGS-scale panel/AF
+# resource vs. hg38's exome-oriented ones) — sizes verified against the live
+# bucket's Content-Length at implementation time, not estimated.
+_SOMATIC_BASE_BY_BUILD: dict[str, str] = {
+    "hg38":   "https://storage.googleapis.com/gatk-best-practices/somatic-hg38",
+    "GRCh37": "https://storage.googleapis.com/gatk-best-practices/somatic-b37",
+}
+_SOMATIC_GCS_BASE_BY_BUILD: dict[str, str] = {
+    "hg38":   "gs://gatk-best-practices/somatic-hg38",
+    "GRCh37": "gs://gatk-best-practices/somatic-b37",
+}
+
+# (filename, index_filename, description, approx_size_MB)
+SOMATIC_RESOURCES_BY_BUILD: dict[str, dict[str, tuple[str, str, str, int]]] = {
+    "hg38": {
+        "germline_resource": (
+            "af-only-gnomad.hg38.vcf.gz", "af-only-gnomad.hg38.vcf.gz.tbi",
+            "gnomAD AF-only VCF (Mutect2 --germline-resource)", 3_200,
+        ),
+        "panel_of_normals": (
+            "1000g_pon.hg38.vcf.gz", "1000g_pon.hg38.vcf.gz.tbi",
+            "1000 Genomes Panel of Normals (Mutect2 --panel-of-normals)", 17,
+        ),
+    },
+    "GRCh37": {
+        "germline_resource": (
+            "af-only-gnomad.raw.sites.vcf", "af-only-gnomad.raw.sites.vcf.idx",
+            "gnomAD AF-only VCF (Mutect2 --germline-resource)", 14_000,
+        ),
+        "panel_of_normals": (
+            "Mutect2-WGS-panel-b37.vcf", "Mutect2-WGS-panel-b37.vcf.idx",
+            "WGS Panel of Normals (Mutect2 --panel-of-normals)", 730,
+        ),
+    },
+}
+
 # Alternate filenames users may already have on disk (checked for both builds)
 _REF_ALTERNATES: dict[str, list[str]] = {
     "Homo_sapiens_assembly38.fasta": [
@@ -731,6 +769,62 @@ def _step_reference_files(
     return refs_dir if not failures else None, failures
 
 
+def _step_somatic_resources(
+    refs_dir: Path, genome_build: str = "hg38", assume_yes: bool = False,
+) -> dict[str, Path]:
+    """
+    Auto-resolve/download Mutect2's --germline-resource and
+    --panel-of-normals for --mode somatic. Both are GATK's own public
+    best-practices resources — no registration required, unlike ANNOVAR/OMIM.
+
+    Best-effort and never raises: Mutect2 still runs without either (with a
+    higher false-positive rate, per run_mutect2()'s own warning) — these are
+    accuracy accelerants, not hard requirements, so a failed/declined
+    download here just means the run proceeds without that resource rather
+    than blocking.
+    """
+    resources = SOMATIC_RESOURCES_BY_BUILD[genome_build]
+    https_base = _SOMATIC_BASE_BY_BUILD[genome_build]
+    gcs_base = _SOMATIC_GCS_BASE_BY_BUILD[genome_build]
+    use_gsutil = bool(shutil.which("gsutil"))
+
+    resolved: dict[str, Path] = {}
+    for key, (filename, index_filename, description, size_mb) in resources.items():
+        dest = refs_dir / filename
+        dest_idx = refs_dir / index_filename
+        if dest.exists() and dest_idx.exists():
+            resolved[key] = dest
+            continue
+
+        # The germline-resource AF file is multi-GB (14 GB for GRCh37) — ask
+        # before pulling that much data. The PoN (17-730 MB) just downloads,
+        # matching the HPO mapping's small-file auto-download pattern.
+        if size_mb > 1_000 and not _ask(
+            f"Download {description} (~{size_mb // 1024 or 1} GB)?",
+            default_yes=True, assume_yes=assume_yes,
+        ):
+            logger.info("Skipping %s — Mutect2 will run without it.", description)
+            continue
+
+        refs_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Downloading %s (~%s MB) ...", description, f"{size_mb:,}")
+        if use_gsutil:
+            ok = _gsutil_cp(f"{gcs_base}/{filename}", dest) and _gsutil_cp(
+                f"{gcs_base}/{index_filename}", dest_idx
+            )
+        else:
+            ok = _download_file(f"{https_base}/{filename}", dest) and _download_file(
+                f"{https_base}/{index_filename}", dest_idx
+            )
+        if ok:
+            logger.log(25, "%s ready.", description)
+            resolved[key] = dest
+        else:
+            logger.warning("%s download failed — Mutect2 will run without it.", description)
+
+    return resolved
+
+
 # ---------------------------------------------------------------------------
 # Step 4 — ANNOVAR databases
 # ---------------------------------------------------------------------------
@@ -1072,7 +1166,8 @@ def _ask_genome_build(saved_build: str | None, assume_yes: bool) -> str:
 
 
 def check_and_fix_dependencies(
-    genome_build: str | None = None, call_cnv: bool = False, assume_yes: bool = False
+    genome_build: str | None = None, call_cnv: bool = False, assume_yes: bool = False,
+    mode: str = "germline",
 ) -> dict:
     """
     Run a pre-flight check before every pipeline run.
@@ -1208,6 +1303,12 @@ def check_and_fix_dependencies(
         _step_intervar(detect_annovar_bin())
         if call_cnv:
             _step_matplotlib()
+        if mode == "somatic":
+            refs_dir = Path(cfg.get("refs_dir", Path.home() / ".exomeflow" / "refs"))
+            somatic_paths = _step_somatic_resources(refs_dir, genome_build, assume_yes)
+            if somatic_paths:
+                save_config({k: str(v) for k, v in somatic_paths.items()})
+                cfg.update({k: str(v) for k, v in somatic_paths.items()})
         return cfg
 
     # ── Fix what's missing ──────────────────────────────────────────────────
@@ -1313,6 +1414,12 @@ def check_and_fix_dependencies(
     _step_intervar(detect_annovar_bin())
     if call_cnv:
         _step_matplotlib()
+    if mode == "somatic":
+        refs_dir = Path(cfg.get("refs_dir", Path.home() / ".exomeflow" / "refs"))
+        somatic_paths = _step_somatic_resources(refs_dir, genome_build, assume_yes)
+        if somatic_paths:
+            save_config({k: str(v) for k, v in somatic_paths.items()})
+            cfg.update({k: str(v) for k, v in somatic_paths.items()})
 
     console.print(Panel("[bold green]✔  All dependencies satisfied. Starting pipeline...[/bold green]",
                         style="green"))

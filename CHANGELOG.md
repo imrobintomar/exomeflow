@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.6
+
+### Added
+
+- **`--germline-resource` and `--panel-of-normals` are now auto-downloaded**
+  for `--mode somatic` if not explicitly given — both are GATK's own public
+  best-practices resources (no registration required, unlike ANNOVAR/OMIM),
+  so `exomeflow run --mode somatic` alone is now enough to get Mutect2's
+  recommended tumor-only accuracy accelerants without supplying any path.
+  The germline-resource AF file is large (3 GB hg38, 14 GB GRCh37) and asks
+  for confirmation before downloading (respects `--yes`); the PoN is small
+  (17 MB hg38, 730 MB GRCh37) and just downloads. Passing either flag
+  explicitly still overrides the auto-downloaded default. Verified against
+  the live GATK bucket end-to-end — exact byte-for-byte match with the
+  known file sizes.
+
 ## 2.2.5
 
 ### Added

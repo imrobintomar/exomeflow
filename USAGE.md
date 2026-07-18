@@ -2,7 +2,7 @@
 
 **Author:** Robin Kumar, Bioinformatics Scientist, AIIMS New Delhi  
 **Package:** `pip install exomeflow`  
-**Version:** 2.2.5
+**Version:** 2.2.6
 
 ---
 
@@ -249,8 +249,8 @@ exomeflow run --help
 | `--genome-build` | No | `hg38` | `hg38` or `GRCh37` |
 | `--joint-genotyping` | No | off | Cohort mode — one shared VCF/annotation, not per-sample |
 | `--cnv` | No | off | Also call read-depth CNVs per sample |
-| `--germline-resource` | No | — | gnomAD AF-only VCF for `--mode somatic` |
-| `--panel-of-normals` | No | — | Pre-built Panel of Normals VCF for `--mode somatic` |
+| `--germline-resource` | No | — | gnomAD AF-only VCF for `--mode somatic`. Auto-downloaded if omitted |
+| `--panel-of-normals` | No | — | Panel of Normals VCF for `--mode somatic`. Auto-downloaded if omitted |
 | `--threads` | No | `24` | Threads for BWA MEM and HaplotypeCaller |
 | `--fastp-threads` | No | `8` | Threads for fastp |
 | `--annovar-threads` | No | `24` | Threads for ANNOVAR |
@@ -502,4 +502,4 @@ exomeflow --version
 
 ---
 
-*ExomeFlow v2.2.5 — Robin Kumar, AIIMS New Delhi, 2026*
+*ExomeFlow v2.2.6 — Robin Kumar, AIIMS New Delhi, 2026*

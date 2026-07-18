@@ -30,23 +30,33 @@ flag still produces one annotated file per sample.
 ## Somatic mode (tumor-only)
 
 ```bash
-exomeflow run --input-dir fastq/ --output results/ \
-  --mode somatic \
+exomeflow run --input-dir fastq/ --output results/ --mode somatic
+```
+
+That's the whole command. Replaces HaplotypeCaller with Mutect2 in tumor-only
+mode, and the germline hard-filter chain with GATK's contamination-aware
+filtering chain (GetPileupSummaries → CalculateContamination →
+FilterMutectCalls). Tumor-normal paired calling is not yet supported —
+`--germline-resource` (a gnomAD AF-only VCF) and `--panel-of-normals` (a PoN
+VCF) are GATK's own documented alternative to matched tumor-normal calling,
+not a lesser substitute, and both are auto-downloaded the first time
+`--mode somatic` is used (GATK's own public best-practices resources, no
+registration required) — same zero-config pattern as everything else.
+The germline-resource file is large (3 GB for hg38, 14 GB for GRCh37) and
+asks for confirmation before downloading (respects `--yes`); the PoN is
+small (17 MB hg38, 730 MB GRCh37) and just downloads.
+
+Pass your own instead if you have one:
+
+```bash
+exomeflow run --input-dir fastq/ --output results/ --mode somatic \
   --germline-resource af-only-gnomad.vcf.gz \
   --panel-of-normals pon.vcf.gz
 ```
 
-Replaces HaplotypeCaller with Mutect2 in tumor-only mode, and the germline
-hard-filter chain with GATK's contamination-aware filtering chain
-(GetPileupSummaries → CalculateContamination → FilterMutectCalls). Tumor-normal
-paired calling is not yet supported — `--germline-resource` (a gnomAD AF-only
-VCF) and `--panel-of-normals` (a pre-built PoN VCF) are both optional but
-strongly recommended: this is GATK's own documented alternative to matched
-tumor-normal calling, not a lesser substitute. Without them, tumor-only calls
-carry more false positives and aren't filtered against recurrent sequencing
-artifacts a PoN would catch. ExomeFlow consumes an existing PoN VCF; building
-one from a set of normal samples isn't automated yet — see GATK's
-`CreateSomaticPanelOfNormals` workflow.
+ExomeFlow consumes an existing PoN VCF; building one from a set of normal
+samples isn't automated yet — see GATK's `CreateSomaticPanelOfNormals`
+workflow.
 
 ## Read-depth CNV calling
 
