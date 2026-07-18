@@ -1,5 +1,81 @@
 # Changelog
 
+## 2.2.8
+
+Deep audit release — a full read-only pass over provisioning, the core
+pipeline, annotation/advanced modes, and CLI/logging surfaced 11 issues;
+a 12th (InterVar timing out on its own first-run database bootstrap) was
+caught live from a real pipeline log during the fix pass. All 12 are fixed
+here, each with a dedicated regression test.
+
+### Fixed
+
+- **Checkpoints ignored `--genome-build`, so switching hg38 ↔ GRCh37 on the
+  same `--output` directory silently reused stale `.done` markers** from
+  the other build instead of re-running the affected steps. Checkpoint
+  filenames now include the genome build (`<sample>.<step>.<build>.done`).
+- **Cohort-level steps (MultiQC, HPO enrichment) were checkpointed as done
+  even when they gracefully skipped** (tool missing, input absent), so a
+  later retry after installing the missing dependency would never re-run
+  them. Both now return a bool signaling real completion vs. skip, and only
+  a genuine completion gets checkpointed.
+- **`table_annovar.pl` exiting 0 didn't guarantee its `_multianno.txt`/`.vcf`
+  outputs existed** — a handful of failure modes (disk full, killed
+  mid-write) left the checkpoint marked done with no annotation output.
+  Annotation now verifies both output files exist before returning success.
+- **GATK `SortSam` exiting 0 didn't guarantee a non-empty sorted BAM** before
+  the raw unsorted input was deleted, destroying the only recoverable copy
+  on a truncated write. Now verified on disk before the input is unlinked.
+- **GATK `ApplyBQSR` exiting 0 didn't guarantee a non-empty recalibrated
+  BAM/BAI** before the sorted/markdup/recal-table intermediates were
+  cleaned up, forcing a full re-align to recover from a truncated output.
+  Now verified on disk before cleanup.
+- **Reference-file and ANNOVAR-database downloads (`gsutil`/`wget`) trusted
+  the subprocess exit code alone**, the same bug class already fixed for
+  the germline-resource VCF in 2.2.7, generalized here to every download
+  site in `setup_env.py`. Success is now judged by the file actually
+  existing on disk with non-zero size (and, for ANNOVAR databases, its
+  paired `.idx` where applicable).
+- **`_step_reference_files()` accepted a reference directory that only
+  partially matched the required file set** ("any match" / "count ≥ 4"
+  instead of the full required set), so a partially-populated or
+  wrong-build refs directory passed provisioning and failed much later,
+  deep into alignment. Completeness is now judged against the exact
+  required filename set for the selected genome build.
+- **`exomeflow doctor` passed the raw `--genome-build` value
+  (`"GRCh37"`) straight to ANNOVAR's humandb detector**, which expects
+  ANNOVAR's own buildver naming (`"hg19"`) — every other call site already
+  converts via `ANNOVAR_BUILDVER` first. A GRCh37 user with no `annovar_db`
+  saved yet always got a false "ANNOVAR databases missing" report even with
+  a fully-populated humandb on disk.
+- **CLI path options accepted any string, including nonexistent paths**,
+  for `--reference`, `--dbsnp`, `--mills`, `--known-indels`,
+  `--germline-resource`, `--panel-of-normals`, `--intervals`,
+  `--annovar-bin`, and `--annovar-db` — a typo surfaced as a confusing
+  failure deep into the pipeline instead of an immediate, clear error.
+  These now fail fast at argument-parsing time via Typer/Click's built-in
+  existence/readability checks.
+- **`recommend_threads`/`recommend_java_opts` sized per-sample resources as
+  if only one sample ever ran at a time**, ignoring `--max-workers` —
+  running N parallel workers could each grab the full machine's threads/RAM,
+  oversubscribing the system. Both now divide the per-worker share by
+  `max_workers`.
+- **Sample-scoped file logging handlers were never closed**, and with
+  `ProcessPoolExecutor` worker reuse (`len(samples) > max_workers`), each
+  reused worker leaked one open file descriptor per prior sample it had
+  processed. Sample loggers are now explicitly closed once a sample
+  finishes, success or failure.
+- **InterVar timing out after its default 1800s** on a first-ever ACMG
+  classification run, killed mid-download and silently skipped — found
+  live from a real pipeline log. InterVar ships its own database set
+  (avsnp147, dbnsfp42a at ~48 GB, clinvar_20210501, 1000g2015aug,
+  esp6500siv2_all, gnomad_genome, dbscsnv11) which mostly doesn't overlap
+  by filename with the newer versions `--annovar-protocols` uses, even
+  though both share the same humandb directory — so first-run ACMG
+  classification can trigger tens of GB of InterVar-specific downloads.
+  Timeout raised to 21600s (6h), matching double the 10800s already used
+  for a single ANNOVAR `-downdb` call.
+
 ## 2.2.7
 
 ### Fixed

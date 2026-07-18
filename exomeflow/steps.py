@@ -31,5 +31,9 @@ class SampleStep:
 @dataclass(frozen=True)
 class CohortStep:
     name: str
-    run: Callable[[list[str], "Config"], None]
+    # Return value matters: an explicit `False` (as opposed to the implicit
+    # `None` from a step whose contract is "raise on failure, otherwise
+    # succeeded") tells the caller a graceful skip happened and the step
+    # must not be checkpointed as done.
+    run: Callable[[list[str], "Config"], bool | None]
     applies: Callable[["Config"], bool] = field(default=_always)

@@ -4,17 +4,20 @@ from pathlib import Path
 import exomeflow.setup_env as setup_env
 from exomeflow.setup_env import (
     ANNOVAR_DATABASES_BY_BUILD,
+    REFERENCE_FILES_BY_BUILD,
     SOMATIC_RESOURCES_BY_BUILD,
     _ensure_mim2gene,
     _step_annovar_databases,
     _step_bootstrap_micromamba,
     _step_bundled_tools,
+    _step_reference_files,
     _step_somatic_resources,
     _step_system_tools,
     annovar_databases_complete,
     detect_annovar_bin,
     detect_annovar_humandb,
     detect_gatk_bin,
+    run_doctor,
     run_setup,
 )
 
@@ -249,8 +252,8 @@ def test_step_annovar_databases_downloads_missing_db_on_partial_match(tmp_path, 
         #       "-webfrom", "annovar", db_name, db_dir]
         db_name = cmd[7]
         downloaded.append(db_name)
-        (db_dir / f"{buildver}_{db_name}.txt").touch()
-        (db_dir / f"{buildver}_{db_name}.txt.idx").touch()
+        (db_dir / f"{buildver}_{db_name}.txt").write_bytes(b"data")
+        (db_dir / f"{buildver}_{db_name}.txt.idx").write_bytes(b"data")
         return True
 
     monkeypatch.setattr(setup_env, "_run_visible", _fake_run_visible)
@@ -561,3 +564,129 @@ def test_step_somatic_resources_still_fetches_index_after_spurious_main_failure(
     # Both files landed on disk with real content, so this must be resolved
     # as present — not silently dropped because of the tool's bad exit code.
     assert resolved["germline_resource"] == refs_dir / "af-only-gnomad.hg38.vcf.gz"
+
+
+def test_step_reference_files_verifies_disk_state_not_exit_code(tmp_path, monkeypatch):
+    """
+    Regression test for a live bug: gsutil's sliced/resumable-download
+    bookkeeping can report a spurious non-zero exit on a file that actually
+    transferred completely and correctly (found live, fixed for somatic
+    resources in 2.2.7 — this test confirms the same fix landed on the
+    reference-file download loop, which had the identical pattern: trusting
+    _gsutil_cp's/_download_file's return value instead of the real file).
+    """
+    refs_dir = tmp_path / "refs"
+    # Force past the early "already present" checks regardless of what's on
+    # disk, to isolate the download loop itself.
+    monkeypatch.setattr(setup_env, "_scan_refs", lambda *a, **k: {})
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)  # force wget/https path
+
+    def _fake_download(url, dest):
+        # Simulate a tool that writes real data but reports failure.
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"data")
+        return False
+
+    monkeypatch.setattr(setup_env, "_download_file", _fake_download)
+
+    resolved, failures = _step_reference_files(refs_dir, None, "hg38", assume_yes=True)
+
+    assert failures == []
+    assert resolved == refs_dir
+    for filename, _, _ in REFERENCE_FILES_BY_BUILD["hg38"]:
+        assert (refs_dir / filename).stat().st_size > 0
+
+
+def test_step_reference_files_reports_failure_when_nothing_lands(tmp_path, monkeypatch):
+    refs_dir = tmp_path / "refs"
+    monkeypatch.setattr(setup_env, "_scan_refs", lambda *a, **k: {})
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup_env, "_download_file", lambda url, dest: False)
+
+    resolved, failures = _step_reference_files(refs_dir, None, "hg38", assume_yes=True)
+
+    assert resolved is None
+    assert len(failures) == len(REFERENCE_FILES_BY_BUILD["hg38"])
+
+
+def test_step_reference_files_rejects_partial_existing_refs_dir(tmp_path, monkeypatch):
+    """
+    Regression test for a live bug: --existing-refs was accepted as complete
+    on *any single* matched file (`if found:` instead of checking all 4
+    required files are present) — a directory holding only a FASTA (a very
+    plausible real scenario: a user with a reference genome but not GATK's
+    known-sites bundle) was wrongly treated as fully resolved, so the
+    required dbSNP/Mills/known-indels VCFs were never fetched.
+    """
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    (existing / "Homo_sapiens_assembly38.fasta").write_bytes(b"data")  # FASTA only
+
+    downloaded = []
+
+    def _fake_download(url, dest):
+        downloaded.append(dest.name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"data")
+        return True
+
+    monkeypatch.setattr(setup_env, "_download_file", _fake_download)
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+
+    refs_dir = tmp_path / "refs"
+    resolved, failures = _step_reference_files(refs_dir, existing, "hg38", assume_yes=True)
+
+    # Must NOT be accepted as complete just because the FASTA was there.
+    assert resolved != existing
+    assert failures == []
+    # The missing dbSNP/Mills/known-indels VCFs must have actually been
+    # fetched (into the default refs_dir, since existing_refs_dir was
+    # incomplete).
+    assert "Homo_sapiens_assembly38.dbsnp138.vcf.gz" in downloaded
+
+
+def test_step_reference_files_accepts_complete_existing_refs_dir(tmp_path, monkeypatch):
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    for filename, _, _ in REFERENCE_FILES_BY_BUILD["hg38"]:
+        (existing / filename).write_bytes(b"data")
+
+    def _fail_if_called(*a, **k):
+        raise AssertionError("should not download anything when existing-refs is complete")
+
+    monkeypatch.setattr(setup_env, "_download_file", _fail_if_called)
+
+    refs_dir = tmp_path / "refs"
+    resolved, failures = _step_reference_files(refs_dir, existing, "hg38", assume_yes=True)
+
+    assert resolved == existing
+    assert failures == []
+
+
+def test_run_doctor_uses_annovar_buildver_convention_for_grch37(tmp_path, monkeypatch):
+    """
+    Regression test: found via audit — run_doctor() passed the raw
+    genome_build ("GRCh37") straight to detect_annovar_humandb(), which
+    expects ANNOVAR's own buildver naming ("hg19") like every other call
+    site converts via ANNOVAR_BUILDVER first. A GRCh37 user with no
+    annovar_db saved yet always searched for the wrong filename prefix, so
+    `exomeflow doctor` reported ANNOVAR databases as missing even when a
+    fully-populated humandb was on disk.
+    """
+    monkeypatch.setattr(setup_env, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(setup_env, "detect_gatk_bin", lambda: None)
+    monkeypatch.setattr(setup_env, "detect_annovar_bin", lambda: tmp_path / "annovar")
+    monkeypatch.setattr(setup_env, "detect_intervar_bin", lambda: None)
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+
+    seen_buildver = {}
+
+    def _fake_detect_humandb(buildver, timeout_s=30):
+        seen_buildver["value"] = buildver
+        return None
+
+    monkeypatch.setattr(setup_env, "detect_annovar_humandb", _fake_detect_humandb)
+
+    run_doctor(genome_build="GRCh37")
+
+    assert seen_buildver["value"] == "hg19"

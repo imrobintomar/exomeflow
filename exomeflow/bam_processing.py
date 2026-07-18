@@ -14,7 +14,7 @@ import logging
 import subprocess
 from typing import TYPE_CHECKING
 
-from exomeflow.utils import Checkpoint, run_cmd
+from exomeflow.utils import Checkpoint, PipelineStepError, run_cmd
 
 if TYPE_CHECKING:
     from exomeflow.config import Config
@@ -52,6 +52,18 @@ def sort_bam(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
         step_name="SortSam",
         sample=sample,
     )
+
+    # A reported-successful exit doesn't guarantee real output (same class
+    # of bug already fixed for ANNOVAR/gsutil elsewhere in this codebase) —
+    # verify before deleting the *only* upstream copy. Found via audit: a
+    # truncated/empty sorted BAM from a disk-full or killed-mid-write JVM
+    # used to destroy the sole recovery path, forcing a full BWA re-align
+    # instead of just retrying this one step.
+    if not (output_bam.exists() and output_bam.stat().st_size > 0):
+        raise PipelineStepError(
+            f"[{sample}] SortSam exited 0 but {output_bam} is missing or empty "
+            f"— not deleting {input_bam}."
+        )
 
     input_bam.unlink(missing_ok=True)
 

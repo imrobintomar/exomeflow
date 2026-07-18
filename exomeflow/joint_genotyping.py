@@ -1,5 +1,5 @@
 """
-Cohort step — joint genotyping across all samples' per-sample GVCFs.
+Cohort step - joint genotyping across all samples' per-sample GVCFs.
 
 Only runs when `cfg.joint_genotyping` is True (opt-in; see steps.py). Mirrors
 GATK's cohort best-practice: GenomicsDBImport -> GenotypeGVCFs, replacing the

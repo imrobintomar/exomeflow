@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from exomeflow.utils import Checkpoint, run_cmd
+from exomeflow.utils import Checkpoint, PipelineStepError, run_cmd
 
 if TYPE_CHECKING:
     from exomeflow.config import Config
@@ -84,6 +84,22 @@ def run_base_recalibration(
         step_name="samtools index (recalibrated BAM)",
         sample=sample,
     )
+
+    # A reported-successful exit doesn't guarantee real output (same class
+    # of bug already fixed for ANNOVAR/gsutil elsewhere in this codebase) —
+    # verify before deleting the last remaining upstream copies. Found via
+    # audit: a truncated/empty recalibrated BAM used to destroy sorted.bam/
+    # markdup.bam/the recal table all at once, forcing a full re-align
+    # instead of just retrying BQSR.
+    recal_bai = cfg.map_dir / f"{sample}_recalibrated.bam.bai"
+    if not (
+        recal_bam.exists() and recal_bam.stat().st_size > 0
+        and recal_bai.exists() and recal_bai.stat().st_size > 0
+    ):
+        raise PipelineStepError(
+            f"[{sample}] BQSR reported success but {recal_bam.name}/{recal_bai.name} "
+            f"is missing or empty — not deleting upstream intermediates."
+        )
 
     # ------------------------------------------------------------------ clean
     # Keep _recalibrated.bam + .bai for IGV variant validation

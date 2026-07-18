@@ -59,20 +59,33 @@ def detect_system_resources(disk_path: Path = Path(".")) -> SystemResources:
     return SystemResources(cpu_count, total_ram_gb, available_ram_gb, free_disk_gb)
 
 
-def recommend_threads(resources: SystemResources) -> int:
-    """Leave 2 cores free for the OS/other processes; cap at 24 (diminishing
-    returns for BWA/HaplotypeCaller beyond this in practice)."""
-    return max(1, min(resources.cpu_count - 2, 24))
-
-
-def recommend_java_opts(resources: SystemResources) -> str:
+def recommend_threads(resources: SystemResources, max_workers: int = 1) -> int:
     """
-    Use 60% of *available* (not total) RAM, leaving headroom for BWA/samtools
-    running alongside the JVM. Floors at 4g, caps at 80g.
+    Leave 2 cores free for the OS/other processes, then split what's left
+    evenly across *max_workers* concurrent samples; cap at 24 per worker
+    (diminishing returns for BWA/HaplotypeCaller beyond this in practice).
+
+    *max_workers* matters: each ProcessPoolExecutor worker runs its own BWA/
+    GATK subprocesses with this same thread count, so sizing for a single
+    worker's exclusive use of the machine (the old behavior) meant
+    `--max-workers 4` requested 4x the machine's actual core count. Found
+    via audit.
+    """
+    per_worker = (resources.cpu_count - 2) // max(1, max_workers)
+    return max(1, min(per_worker, 24))
+
+
+def recommend_java_opts(resources: SystemResources, max_workers: int = 1) -> str:
+    """
+    Use 60% of *available* (not total) RAM, split evenly across
+    *max_workers* concurrent JVMs so they don't collectively request more
+    heap than the machine actually has (same oversubscription bug as
+    `recommend_threads` — found via audit). Floors at 4g, caps at 80g per
+    worker.
     """
     if resources.available_ram_gb <= 0:
         return "-Xmx8g"  # unknown RAM (non-Linux) — conservative fallback
-    gb = max(4, min(int(resources.available_ram_gb * 0.6), 80))
+    gb = max(4, min(int(resources.available_ram_gb * 0.6 / max(1, max_workers)), 80))
     return f"-Xmx{gb}g"
 
 
@@ -194,15 +207,23 @@ class Checkpoint:
     Lightweight file-based checkpoint system.
 
     A step is considered complete when the file
-    ``<checkpoint_dir>/<sample>.<step>.done`` exists.
+    ``<checkpoint_dir>/<sample>.<step>.<genome_build>.done`` exists.
+
+    *genome_build* is part of the filename (not just an internal detail)
+    because alignment/calling output genuinely differs by reference genome:
+    without it, switching `--genome-build` on an already-used `--output`
+    directory would see the old build's checkpoints as "already done" and
+    skip straight to calling variants against the new build's reference
+    using a BAM that's still aligned to the old one. Found via audit.
     """
 
-    def __init__(self, checkpoint_dir: Path) -> None:
+    def __init__(self, checkpoint_dir: Path, genome_build: str = "hg38") -> None:
         self._dir = checkpoint_dir
         self._dir.mkdir(parents=True, exist_ok=True)
+        self._genome_build = genome_build
 
     def _path(self, sample: str, step: str) -> Path:
-        return self._dir / f"{sample}.{step}.done"
+        return self._dir / f"{sample}.{step}.{self._genome_build}.done"
 
     def mark(self, sample: str, step: str) -> None:
         """Create the checkpoint file for *sample* / *step*."""

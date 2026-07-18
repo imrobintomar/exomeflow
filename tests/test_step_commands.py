@@ -74,8 +74,18 @@ def test_bwa_pipes_into_samtools(cfg: Config, checkpoint: Checkpoint, monkeypatc
 
 def test_sort_and_markdup_and_index_commands(cfg: Config, checkpoint: Checkpoint, monkeypatch):
     import exomeflow.bam_processing as mod
+    cfg.map_dir.mkdir(parents=True, exist_ok=True)
     calls: list = []
-    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+
+    def _fake_run_cmd(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:2] == ["gatk", "SortSam"]:
+            # sort_bam now verifies real output exists before deleting the
+            # upstream BAM — the mock must produce it.
+            Path(cmd[cmd.index("-O") + 1]).write_bytes(b"data")
+        return MagicMock(returncode=0)
+
+    monkeypatch.setattr(mod, "run_cmd", _fake_run_cmd)
 
     mod.sort_bam("s1", cfg, checkpoint)
     mod.mark_duplicates("s1", cfg, checkpoint)
@@ -84,6 +94,31 @@ def test_sort_and_markdup_and_index_commands(cfg: Config, checkpoint: Checkpoint
     assert calls[0][:2] == ["gatk", "SortSam"]
     assert calls[1][:2] == ["gatk", "MarkDuplicates"]
     assert calls[2][:2] == ["gatk", "BuildBamIndex"]
+
+
+def test_sort_bam_raises_and_keeps_input_when_output_missing(
+    cfg: Config, checkpoint: Checkpoint, monkeypatch
+):
+    """
+    Regression test: found via audit — SortSam exiting 0 without producing
+    real output used to still delete the only upstream (unsorted) BAM
+    copy, forcing a full BWA re-align to recover instead of just retrying
+    this one step.
+    """
+    import exomeflow.bam_processing as mod
+    from exomeflow.utils import PipelineStepError
+
+    cfg.map_dir.mkdir(parents=True, exist_ok=True)
+    input_bam = cfg.map_dir / "s1.bam"
+    input_bam.write_bytes(b"data")
+
+    monkeypatch.setattr(mod, "run_cmd", _recorder([]))  # reports success, writes nothing
+
+    with pytest.raises(PipelineStepError):
+        mod.sort_bam("s1", cfg, checkpoint)
+
+    assert input_bam.exists()  # must not have been deleted
+    assert not checkpoint.done("s1", "sort")
 
 
 def test_flagstat_writes_stdout_to_file(cfg: Config, checkpoint: Checkpoint, monkeypatch):
@@ -103,13 +138,54 @@ def test_flagstat_writes_stdout_to_file(cfg: Config, checkpoint: Checkpoint, mon
 
 def test_bqsr_known_sites(cfg: Config, checkpoint: Checkpoint, monkeypatch):
     import exomeflow.recalibration as mod
+    cfg.map_dir.mkdir(parents=True, exist_ok=True)
     calls: list = []
-    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+
+    def _fake_run_cmd(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:2] == ["gatk", "ApplyBQSR"]:
+            Path(cmd[cmd.index("-O") + 1]).write_bytes(b"data")
+        elif cmd[:2] == ["samtools", "index"]:
+            # run_base_recalibration now verifies both the recalibrated BAM
+            # and its .bai exist before deleting the upstream intermediates.
+            Path(cmd[2] + ".bai").write_bytes(b"data")
+        return MagicMock(returncode=0)
+
+    monkeypatch.setattr(mod, "run_cmd", _fake_run_cmd)
     mod.run_base_recalibration("s1", cfg, checkpoint)
     recal_cmd = calls[0]
     assert recal_cmd[:2] == ["gatk", "BaseRecalibrator"]
     assert recal_cmd.count("--known-sites") == 3
     assert calls[1][:2] == ["gatk", "ApplyBQSR"]
+    assert checkpoint.done("s1", "bqsr")
+
+
+def test_bqsr_raises_and_keeps_intermediates_when_output_missing(
+    cfg: Config, checkpoint: Checkpoint, monkeypatch
+):
+    """
+    Regression test: found via audit — a reported-successful BQSR that
+    didn't actually produce the recalibrated BAM/.bai used to still delete
+    sorted.bam/markdup.bam/markdup.bai/the recal table all at once,
+    destroying every upstream recovery point instead of just retrying BQSR.
+    """
+    import exomeflow.recalibration as mod
+    from exomeflow.utils import PipelineStepError
+
+    cfg.map_dir.mkdir(parents=True, exist_ok=True)
+    sorted_bam = cfg.map_dir / "s1_sorted.bam"
+    markdup_bam = cfg.map_dir / "s1_markdup.bam"
+    sorted_bam.write_bytes(b"data")
+    markdup_bam.write_bytes(b"data")
+
+    monkeypatch.setattr(mod, "run_cmd", _recorder([]))  # reports success, writes nothing
+
+    with pytest.raises(PipelineStepError):
+        mod.run_base_recalibration("s1", cfg, checkpoint)
+
+    assert sorted_bam.exists()
+    assert markdup_bam.exists()
+    assert not checkpoint.done("s1", "bqsr")
 
 
 # --------------------------------------------------------------------------- variant_calling (GVCF branch)
@@ -177,7 +253,19 @@ def _write_fake_pass_vcf(cfg: Config, sample: str, n_variants: int = 1) -> None:
 def test_annotation_uses_annovar_buildver(cfg: Config, checkpoint: Checkpoint, monkeypatch):
     import exomeflow.annotation as mod
     calls: list = []
-    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+
+    def _fake_run_cmd(cmd, **kwargs):
+        calls.append(cmd)
+        # table_annovar.pl's real output — annotate() now verifies these
+        # exist after a reported-successful run rather than trusting the
+        # exit code alone.
+        out_prefix = cmd[cmd.index("--out") + 1]
+        buildver = cmd[cmd.index("--buildver") + 1]
+        Path(f"{out_prefix}.{buildver}_multianno.txt").touch()
+        Path(f"{out_prefix}.{buildver}_multianno.vcf").touch()
+        return MagicMock(returncode=0)
+
+    monkeypatch.setattr(mod, "run_cmd", _fake_run_cmd)
     _write_fake_pass_vcf(cfg, "s1")
 
     cfg.genome_build = "GRCh37"
@@ -185,6 +273,7 @@ def test_annotation_uses_annovar_buildver(cfg: Config, checkpoint: Checkpoint, m
     cmd = calls[0]
     assert "--buildver" in cmd
     assert cmd[cmd.index("--buildver") + 1] == "hg19"
+    assert checkpoint.done("s1", "annovar")
 
 
 def test_annotation_skips_cleanly_on_zero_variants(cfg: Config, checkpoint: Checkpoint, monkeypatch):
@@ -201,6 +290,26 @@ def test_annotation_skips_cleanly_on_zero_variants(cfg: Config, checkpoint: Chec
     mod.run_annovar_annotation("s1", cfg, checkpoint)  # must not raise
     assert calls == []  # never invoked table_annovar.pl on an empty VCF
     assert checkpoint.done("s1", "annovar")  # still marked complete, not failed
+
+
+def test_annotation_raises_when_output_missing_despite_zero_exit(
+    cfg: Config, checkpoint: Checkpoint, monkeypatch
+):
+    """
+    Regression test: table_annovar.pl's exit code alone isn't trustworthy
+    (found via audit — same class of bug already fixed for gsutil/InterVar
+    elsewhere in this codebase). A reported success that doesn't actually
+    produce the expected output files must raise, not get checkpointed.
+    """
+    import exomeflow.annotation as mod
+    from exomeflow.utils import PipelineStepError
+
+    monkeypatch.setattr(mod, "run_cmd", _recorder([]))  # reports success, writes nothing
+    _write_fake_pass_vcf(cfg, "s1")
+
+    with pytest.raises(PipelineStepError):
+        mod.run_annovar_annotation("s1", cfg, checkpoint)
+    assert not checkpoint.done("s1", "annovar")
 
 
 # --------------------------------------------------------------------------- somatic

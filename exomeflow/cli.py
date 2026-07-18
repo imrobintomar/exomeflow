@@ -125,19 +125,31 @@ def run_command(
         help="Root output directory (created if absent).",
     ),
     # ── Reference overrides (optional — auto-resolved from saved config) ──
+    # exists=True only fires validation when a value is actually given (the
+    # None default with no flag passed is never checked) — but when one IS
+    # given, it must be real: found via audit, an override with no existence
+    # check bypassed the dependency table entirely (which only inspects the
+    # *saved* config, never a CLI override) and only failed deep inside
+    # BWA MEM/GATK instead of failing fast the way --input-dir already does.
     reference: Optional[Path] = typer.Option(None, "--reference", "-r",
         help="Reference genome FASTA (hg38 or GRCh37 — see --genome-build). "
-             "Auto-resolved from saved config if omitted."),
+             "Auto-resolved from saved config if omitted.",
+        exists=True, file_okay=True, dir_okay=False, readable=True),
     dbsnp: Optional[Path] = typer.Option(None, "--dbsnp",
-        help="dbSNP VCF. Auto-resolved from saved config if omitted."),
+        help="dbSNP VCF. Auto-resolved from saved config if omitted.",
+        exists=True, file_okay=True, dir_okay=False, readable=True),
     mills: Optional[Path] = typer.Option(None, "--mills",
-        help="Mills indels VCF. Auto-resolved from saved config if omitted."),
+        help="Mills indels VCF. Auto-resolved from saved config if omitted.",
+        exists=True, file_okay=True, dir_okay=False, readable=True),
     known_indels: Optional[Path] = typer.Option(None, "--known-indels",
-        help="Known indels VCF. Auto-resolved from saved config if omitted."),
+        help="Known indels VCF. Auto-resolved from saved config if omitted.",
+        exists=True, file_okay=True, dir_okay=False, readable=True),
     annovar_bin: Optional[Path] = typer.Option(None, "--annovar-bin",
-        help="ANNOVAR directory. Auto-resolved from saved config if omitted."),
+        help="ANNOVAR directory. Auto-resolved from saved config if omitted.",
+        exists=True, file_okay=False, dir_okay=True, readable=True),
     annovar_db: Optional[Path] = typer.Option(None, "--annovar-db",
-        help="ANNOVAR humandb directory. Auto-resolved from saved config if omitted."),
+        help="ANNOVAR humandb directory. Auto-resolved from saved config if omitted.",
+        exists=True, file_okay=False, dir_okay=True, readable=True),
     annovar_protocols: Optional[str] = typer.Option(None, "--annovar-protocols",
         help="Override the ANNOVAR --protocol list (comma-separated db names). "
              "Use this if your existing humandb has different database versions "
@@ -147,7 +159,12 @@ def run_command(
              "of comma-separated entries as --annovar-protocols."),
     # ── Pipeline options ──────────────────────────────────────────────────
     intervals: Optional[Path] = typer.Option(None, "--intervals",
-        help="Exome capture BED file. Omit for whole-genome mode."),
+        help="Exome capture BED file. Omit for whole-genome mode.",
+        # A typo'd path used to pass through unvalidated and silently
+        # degrade the whole run from WES to genome-wide mode (Config.
+        # has_intervals treats "given but missing" identically to "not
+        # given" by design) — no error anywhere. Found via audit.
+        exists=True, file_okay=True, dir_okay=False, readable=True),
     interval_padding: int = typer.Option(100, "--interval-padding",
         help="Base-pair padding around each target interval."),
     threads: Optional[int] = typer.Option(None, "--threads", "-t",
@@ -176,12 +193,14 @@ def run_command(
         help="Also call read-depth CNVs per sample (requires --intervals)."),
     germline_resource: Optional[Path] = typer.Option(None, "--germline-resource",
         help="gnomAD AF-only VCF for Mutect2 (--mode somatic). Auto-downloaded "
-             "(GATK's public resource) if omitted — pass this to use your own instead."),
+             "(GATK's public resource) if omitted — pass this to use your own instead.",
+        exists=True, file_okay=True, dir_okay=False, readable=True),
     panel_of_normals: Optional[Path] = typer.Option(None, "--panel-of-normals",
         help="Panel of Normals VCF for Mutect2 (--mode somatic). Auto-downloaded "
              "(GATK's public 1000 Genomes PoN) if omitted — pass this to use your own "
              "instead. Filters recurrent sequencing artifacts a population AF "
-             "resource alone won't catch."),
+             "resource alone won't catch.",
+        exists=True, file_okay=True, dir_okay=False, readable=True),
     assume_yes: bool = typer.Option(False, "--yes", "-y",
         help="Non-interactive: auto-confirm every setup prompt (downloads, etc.) "
              "instead of asking. Needed for unattended/background/CI runs."),
@@ -260,14 +279,15 @@ def run_command(
         from exomeflow.utils import detect_system_resources, recommend_java_opts, recommend_threads
         resources = detect_system_resources(output)
         if threads is None:
-            threads = recommend_threads(resources)
+            threads = recommend_threads(resources, max_workers)
         if java_opts is None:
-            java_opts = recommend_java_opts(resources)
+            java_opts = recommend_java_opts(resources, max_workers)
+        workers_note = f" across {max_workers} parallel workers" if max_workers > 1 else ""
         console.print(
             f"  [dim]Detected {resources.cpu_count} CPUs, "
             f"{resources.available_ram_gb:.0f}/{resources.total_ram_gb:.0f} GB RAM available, "
             f"{resources.free_disk_gb:.0f} GB free disk — "
-            f"using --threads {threads} --java-opts \"{java_opts}\"[/dim]"
+            f"using --threads {threads} --java-opts \"{java_opts}\" per sample{workers_note}[/dim]"
         )
 
     # ── First-run setup (skipped if config already complete) ─────────────

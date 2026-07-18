@@ -40,7 +40,7 @@ def _load_hpo_map() -> "pd.DataFrame | None":
         return None
     try:
         # Peek at the header only (cheap) to resolve the 3 columns we
-        # actually need before loading the full file — this mapping file
+        # actually need before loading the full file  this mapping file
         # has 20+ unrelated columns (disease IDs, frequencies, etc.) that
         # would otherwise be parsed and held in memory for nothing. Found
         # via audit.
@@ -67,21 +67,44 @@ def _load_hpo_map() -> "pd.DataFrame | None":
     )
 
 
-def enrich(label: str, multianno_txt: Path, output_txt: Path) -> None:
-    """Merge HPO terms onto *multianno_txt* by `Gene.refGene`, write *output_txt*."""
+def enrich(label: str, multianno_txt: Path, output_txt: Path) -> bool:
+    """
+    Merge HPO terms onto *multianno_txt* by `Gene.refGene`, write *output_txt*.
+
+    Returns whether this call reached a genuinely complete state - used by
+    the caller to decide whether to checkpoint. A missing *multianno_txt* is
+    a legitimate completion (annotation gracefully skipped a 0-variant
+    sample upstream - nothing to enrich, not a failure). A missing/
+    unparseable HPO mapping is NOT: the table is still written without HPO
+    columns (annotation output alone is useful), but this must be reported
+    as incomplete so a later run retries once the mapping is available -
+    found via audit: this used to always be checkpointed as done either way,
+    permanently skipping enrichment for any sample that happened to run
+    before the mapping was first cached.
+    """
     if not multianno_txt.exists():
         logger.warning(
             "[%s] Annotated table not found: %s — skipping HPO enrichment.",
             label, multianno_txt,
         )
-        return
+        return True
 
     hpo_map = _load_hpo_map()
     table = pd.read_csv(multianno_txt, sep="\t", dtype=str)
     if hpo_map is not None and "Gene.refGene" in table.columns:
         table = table.merge(hpo_map, on="Gene.refGene", how="left")
     table.to_csv(output_txt, sep="\t", index=False)
+
+    if hpo_map is None:
+        logger.info(
+            "[%s] Wrote %s without HPO columns (mapping unavailable) — "
+            "will retry enrichment on next run.",
+            label, output_txt,
+        )
+        return False
+
     logger.log(25, "[%s] HPO-enriched table: %s", label, output_txt)
+    return True
 
 
 def run_hpo_annotation(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
@@ -94,12 +117,13 @@ def run_hpo_annotation(sample: str, cfg: "Config", checkpoint: Checkpoint) -> No
         return
 
     multianno = cfg.vcf_dir / f"{sample}.annovar.{cfg.annovar_buildver}_multianno.txt"
-    enrich(sample, multianno, cfg.vcf_dir / f"{sample}.annovar.hpo.txt")
+    complete = enrich(sample, multianno, cfg.vcf_dir / f"{sample}.annovar.hpo.txt")
 
-    checkpoint.mark(sample, STEP)
+    if complete:
+        checkpoint.mark(sample, STEP)
 
 
-def run_hpo_annotation_cohort(samples: list[str], cfg: "Config") -> None:
+def run_hpo_annotation_cohort(samples: list[str], cfg: "Config") -> bool:
     """Cohort counterpart of `run_hpo_annotation`, applied once to the cohort table."""
     multianno = cfg.cohort_dir / f"cohort.annovar.{cfg.annovar_buildver}_multianno.txt"
-    enrich("cohort", multianno, cfg.cohort_dir / "cohort.annovar.hpo.txt")
+    return enrich("cohort", multianno, cfg.cohort_dir / "cohort.annovar.hpo.txt")

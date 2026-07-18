@@ -34,7 +34,7 @@ from exomeflow.fastp import run_fastp
 from exomeflow.filtering import run_cohort_filtration, run_variant_filtration
 from exomeflow.hpo_annotation import run_hpo_annotation, run_hpo_annotation_cohort
 from exomeflow.joint_genotyping import run_joint_genotyping
-from exomeflow.logger import get_pipeline_logger, get_sample_logger
+from exomeflow.logger import close_sample_logger, get_pipeline_logger, get_sample_logger
 from exomeflow.recalibration import run_base_recalibration
 from exomeflow.reporting import run_multiqc
 from exomeflow.somatic import run_mutect2, run_somatic_filtration
@@ -130,32 +130,40 @@ def process_sample(sample: str, cfg: "Config", timestamp: str) -> None:
     get_sample_logger(sample, cfg.log_dir, timestamp)
 
     sample_logger = logging.getLogger(f"exomeflow.{sample}")
-    checkpoint = Checkpoint(cfg.checkpoint_dir)
+    checkpoint = Checkpoint(cfg.checkpoint_dir, cfg.genome_build)
 
-    sample_logger.info("=" * 50)
-    sample_logger.info("Processing sample: %s (mode=%s)", sample, cfg.mode)
-    sample_logger.info("=" * 50)
+    try:
+        sample_logger.info("=" * 50)
+        sample_logger.info("Processing sample: %s (mode=%s)", sample, cfg.mode)
+        sample_logger.info("=" * 50)
 
-    for step in SAMPLE_STEPS:
-        if not step.applies(cfg):
-            continue
-        try:
-            step.run(sample, cfg, checkpoint)
-        except PipelineStepError as exc:
-            sample_logger.error("Failed at step '%s': %s", step.name, exc)
-            raise
+        for step in SAMPLE_STEPS:
+            if not step.applies(cfg):
+                continue
+            try:
+                step.run(sample, cfg, checkpoint)
+            except PipelineStepError as exc:
+                sample_logger.error("Failed at step '%s': %s", step.name, exc)
+                raise
 
-    sample_logger.log(25, "Sample %s completed successfully.", sample)
-    sample_logger.info("=" * 10 + " OUTPUT FILES: %s " + "=" * 10, sample)
-    sample_logger.info("  BAM (IGV):     %s", cfg.map_dir / f"{sample}_recalibrated.bam")
-    if not _cohort_active(cfg):
-        sample_logger.info("  PASS VCF:      %s", cfg.vcf_dir / f"{sample}_PASS.vcf")
-        sample_logger.info(
-            "  Annotated TXT: %s",
-            cfg.vcf_dir / f"{sample}.annovar.{cfg.annovar_buildver}_multianno.txt",
-        )
-        sample_logger.info("  HPO/ACMG TXT:  %s", cfg.vcf_dir / f"{sample}.annovar.hpo.txt")
-    sample_logger.info("=" * 50)
+        sample_logger.log(25, "Sample %s completed successfully.", sample)
+        sample_logger.info("=" * 10 + " OUTPUT FILES: %s " + "=" * 10, sample)
+        sample_logger.info("  BAM (IGV):     %s", cfg.map_dir / f"{sample}_recalibrated.bam")
+        if not _cohort_active(cfg):
+            sample_logger.info("  PASS VCF:      %s", cfg.vcf_dir / f"{sample}_PASS.vcf")
+            sample_logger.info(
+                "  Annotated TXT: %s",
+                cfg.vcf_dir / f"{sample}.annovar.{cfg.annovar_buildver}_multianno.txt",
+            )
+            sample_logger.info("  HPO/ACMG TXT:  %s", cfg.vcf_dir / f"{sample}.annovar.hpo.txt")
+        sample_logger.info("=" * 50)
+    finally:
+        # A ProcessPoolExecutor worker is reused across many samples
+        # whenever len(samples) > max_workers — without this, each new
+        # sample's FileHandler (opened by get_sample_logger above) is never
+        # released, leaking one file descriptor per sample the worker ever
+        # processes over its lifetime. Found via audit.
+        close_sample_logger(sample)
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +205,7 @@ def run_pipeline(cfg: "Config") -> int:
     logger.info("Found %d sample(s): %s", len(samples), ", ".join(samples))
     logger.info("Will process %d sample(s) in parallel", cfg.max_workers)
 
-    checkpoint = Checkpoint(cfg.checkpoint_dir)
+    checkpoint = Checkpoint(cfg.checkpoint_dir, cfg.genome_build)
 
     # Skip already-completed samples
     pending = [s for s in samples if not _sample_is_complete(s, cfg, checkpoint)]
@@ -222,7 +230,7 @@ def run_pipeline(cfg: "Config") -> int:
 
     if pending:
         if cfg.max_workers == 1:
-            # Sequential — run in the current process (simpler traceback)
+            # Sequential - run in the current process (simpler traceback)
             for sample in pending:
                 try:
                     process_sample(sample, cfg, timestamp)
@@ -231,7 +239,7 @@ def run_pipeline(cfg: "Config") -> int:
                     logger.error("Sample %s failed: %s", sample, exc)
                     failed.append(sample)
         else:
-            # Parallel — each sample runs in its own worker process
+            # Parallel - each sample runs in its own worker process
             with ProcessPoolExecutor(max_workers=cfg.max_workers) as pool:
                 future_to_sample = {
                     pool.submit(process_sample, s, cfg, timestamp): s
@@ -253,12 +261,12 @@ def run_pipeline(cfg: "Config") -> int:
     # excluding anything that just failed).
     #
     # Deliberately *not* `_sample_is_complete()` here (bug found via audit,
-    # live smoke test): that check is strict — every applicable step,
+    # live smoke test): that check is strict - every applicable step,
     # including optional ones like ACMG/HPO, must be checkpointed. ACMG
     # gracefully skipping (e.g. InterVar not yet provisioned) doesn't raise
     # PipelineStepError and isn't a real failure, but it would make
     # _sample_is_complete() false for every sample, silently skipping the
-    # *entire* cohort phase — including MultiQC — on an otherwise fully
+    # *entire* cohort phase - including MultiQC - on an otherwise fully
     # successful run.
     cohort_samples = [s for s in samples if s not in failed]
     if cohort_samples:
@@ -269,8 +277,17 @@ def run_pipeline(cfg: "Config") -> int:
                 logger.info("[cohort] %s already completed, skipping.", cstep.name)
                 continue
             try:
-                cstep.run(cohort_samples, cfg)
-                checkpoint.mark("__cohort__", cstep.name)
+                result = cstep.run(cohort_samples, cfg)
+                # Steps that don't distinguish "succeeded" from "gracefully
+                # skipped" via a return value implicitly return None here,
+                # which is deliberately treated as success (their contract
+                # is: raise PipelineStepError on real failure). Only a step
+                # that explicitly returns False (e.g. MultiQC skipping
+                # because the tool isn't installed) is left unmarked, so a
+                # later retry once the blocker is fixed isn't silently
+                # skipped forever.
+                if result is not False:
+                    checkpoint.mark("__cohort__", cstep.name)
             except PipelineStepError as exc:
                 logger.error("[cohort] Failed at step '%s': %s", cstep.name, exc)
                 failed.append(f"__cohort__:{cstep.name}")

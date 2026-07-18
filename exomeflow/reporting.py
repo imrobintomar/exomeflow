@@ -22,14 +22,23 @@ logger = logging.getLogger("exomeflow")
 STEP = "multiqc"
 
 
-def run_multiqc(samples: list[str], cfg: "Config") -> None:
-    """Aggregate all sample QC/log outputs into one MultiQC HTML report."""
+def run_multiqc(samples: list[str], cfg: "Config") -> bool:
+    """
+    Aggregate all sample QC/log outputs into one MultiQC HTML report.
+
+    Returns whether a report was actually produced. This matters for the
+    caller's checkpoint: a graceful skip (multiqc missing, or exiting
+    non-zero) must NOT be checkpointed as done - found via audit, a skip
+    used to be marked complete just like a real success, so installing
+    multiqc later and re-running never generated the report even though
+    nothing was blocking it anymore.
+    """
     if not shutil.which("multiqc"):
         logger.warning(
-            "[cohort] multiqc not found on PATH — skipping rollup report "
+            "[cohort] multiqc not found on PATH - skipping rollup report "
             "(non-fatal; run `pip install multiqc` to enable it)."
         )
-        return
+        return False
 
     report_dir = cfg.output_dir / "multiqc"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -49,9 +58,18 @@ def run_multiqc(samples: list[str], cfg: "Config") -> None:
     )
     if result.returncode != 0:
         logger.warning(
-            "[cohort] multiqc exited non-zero (%d) — skipping rollup report:\n%s",
+            "[cohort] multiqc exited non-zero (%d) - skipping rollup report:\n%s",
             result.returncode, result.stderr[-500:],
         )
-        return
+        return False
 
-    logger.log(25, "[cohort] MultiQC report: %s", report_dir / "exomeflow_report.html")
+    report = report_dir / "exomeflow_report.html"
+    if not report.exists():
+        logger.warning(
+            "[cohort] multiqc exited 0 but %s wasn't produced — treating as a skip.",
+            report,
+        )
+        return False
+
+    logger.log(25, "[cohort] MultiQC report: %s", report)
+    return True

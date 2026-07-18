@@ -37,10 +37,18 @@ STEP = "acmg"
 _INTERVAR_COLUMN_HINT = "InterVar"
 
 
-_INTERVAR_TIMEOUT_S = 1800  # InterVar's config.ini pins its own DB set, independent
-# of --annovar-db/--annovar-protocols, and auto-downloads any it's missing from
-# ANNOVAR's server on a first run — bounded here so a slow/stalled download of
-# InterVar's own dependencies can never hang the rest of the pipeline.
+# InterVar's config.ini pins its own specifically-versioned DB set
+# (avsnp147, dbnsfp42a, clinvar_20210501, 1000g2015aug, esp6500siv2_all,
+# gnomad_genome, dbscsnv11, ...) that mostly doesn't overlap by exact
+# filename with whatever --annovar-protocols downloaded, even though both
+# now share the same humandb directory (2.2.6) — so a first-ever ACMG
+# classification on a machine can still trigger InterVar auto-downloading
+# tens of GB of its own databases (dbnsfp42a alone is ~48GB). 1800s (30 min)
+# was nowhere near enough for that and left ACMG stuck re-timing-out on
+# every run — found live. Matched to the 10800s already used for a single
+# ANNOVAR -downdb call, doubled since InterVar can need several such files
+# in one pass, not just one.
+_INTERVAR_TIMEOUT_S = 21600
 
 
 def _run_intervar_tool(label: str, vcf: Path, out_prefix: Path, cfg: "Config") -> Path | None:

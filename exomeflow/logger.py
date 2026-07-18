@@ -110,3 +110,22 @@ def get_sample_logger(sample: str, log_dir: Path, timestamp: str) -> logging.Log
     logger.addHandler(sample_handler)
 
     return logger
+
+
+def close_sample_logger(sample: str) -> None:
+    """
+    Close and detach the per-sample FileHandler(s) opened by
+    `get_sample_logger`.
+
+    A ProcessPoolExecutor worker is a long-lived process reused across many
+    submitted tasks whenever there are more samples than `--max-workers` —
+    each call to `get_sample_logger` for a *new* sample opens a fresh file
+    descriptor that nothing ever released, so a worker that processes many
+    samples over its lifetime accumulated one open handle per sample until
+    the whole pool shut down at the end of the run. Found via audit; call
+    this once a sample's processing is done (success or failure).
+    """
+    logger = logging.getLogger(f"exomeflow.{sample}")
+    for handler in list(logger.handlers):
+        handler.close()
+        logger.removeHandler(handler)

@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from exomeflow.utils import Checkpoint, count_variants, run_cmd
+from exomeflow.utils import Checkpoint, PipelineStepError, count_variants, run_cmd
 
 if TYPE_CHECKING:
     from exomeflow.config import Config
@@ -65,6 +65,19 @@ def annotate(
     ]
 
     run_cmd(cmd, env=cfg.env(), step_name="table_annovar.pl", sample=label)
+
+    # table_annovar.pl exiting 0 doesn't guarantee it actually wrote the
+    # output — verified elsewhere in this codebase that tool exit codes
+    # alone aren't trustworthy. A real (non-zero-variant) run must produce
+    # both files; treat a missing one as a genuine failure rather than
+    # silently letting the caller checkpoint a step with no real output.
+    out_txt = Path(f"{output_prefix}.{cfg.annovar_buildver}_multianno.txt")
+    out_vcf = Path(f"{output_prefix}.{cfg.annovar_buildver}_multianno.vcf")
+    if not (out_txt.exists() and out_vcf.exists()):
+        raise PipelineStepError(
+            f"[{label}] table_annovar.pl exited 0 but expected output "
+            f"({out_txt.name} / {out_vcf.name}) wasn't produced."
+        )
 
     # Remove ANNOVAR intermediate file (--remove doesn't always clean this up)
     avinput = Path(f"{output_prefix}.avinput")
