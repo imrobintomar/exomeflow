@@ -792,7 +792,7 @@ def _step_somatic_resources(
     for key, (filename, index_filename, description, size_mb) in resources.items():
         dest = refs_dir / filename
         dest_idx = refs_dir / index_filename
-        if dest.exists() and dest_idx.exists():
+        if dest.exists() and dest.stat().st_size > 0 and dest_idx.exists() and dest_idx.stat().st_size > 0:
             resolved[key] = dest
             continue
 
@@ -808,14 +808,25 @@ def _step_somatic_resources(
 
         refs_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Downloading %s (~%s MB) ...", description, f"{size_mb:,}")
+        # Deliberately not `and`-chained: gsutil's sliced/resumable-download
+        # bookkeeping can report a spurious non-zero exit (e.g. failing to
+        # rename a temp component file) even when the actual transfer
+        # completed correctly — found live, where the main VCF downloaded
+        # byte-perfect but a false failure signal on it meant the .tbi
+        # index was never even attempted. Both are always tried
+        # independently; success is judged by the files actually existing
+        # and being non-empty afterward, not by trusting the tool's exit
+        # code for either.
         if use_gsutil:
-            ok = _gsutil_cp(f"{gcs_base}/{filename}", dest) and _gsutil_cp(
-                f"{gcs_base}/{index_filename}", dest_idx
-            )
+            _gsutil_cp(f"{gcs_base}/{filename}", dest)
+            _gsutil_cp(f"{gcs_base}/{index_filename}", dest_idx)
         else:
-            ok = _download_file(f"{https_base}/{filename}", dest) and _download_file(
-                f"{https_base}/{index_filename}", dest_idx
-            )
+            _download_file(f"{https_base}/{filename}", dest)
+            _download_file(f"{https_base}/{index_filename}", dest_idx)
+        ok = (
+            dest.exists() and dest.stat().st_size > 0
+            and dest_idx.exists() and dest_idx.stat().st_size > 0
+        )
         if ok:
             logger.log(25, "%s ready.", description)
             resolved[key] = dest

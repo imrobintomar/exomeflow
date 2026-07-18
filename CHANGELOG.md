@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.7
+
+### Fixed
+
+- **A spurious gsutil failure on the germline-resource VCF silently skipped
+  its `.tbi` index too** — found live: gsutil's sliced/resumable-download
+  bookkeeping reported a non-zero exit while reassembling the 3 GB
+  `af-only-gnomad.hg38.vcf.gz` even though the file had transferred
+  completely and correctly (verified: exact expected byte count, valid
+  BGZF). The download logic `and`-chained the main file and its index, so
+  that one unreliable exit code meant the index was never even attempted —
+  wasting the completed 3 GB download since Mutect2 needs the pair. Both
+  files are now always downloaded independently, and success is judged by
+  the files actually existing on disk afterward, not by trusting either
+  call's return value.
+
 ## 2.2.6
 
 ### Added

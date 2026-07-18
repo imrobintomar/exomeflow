@@ -441,8 +441,8 @@ def test_step_somatic_resources_skips_already_present_files(tmp_path, monkeypatc
     refs_dir = tmp_path / "refs"
     refs_dir.mkdir()
     for filename, index_filename, _, _ in SOMATIC_RESOURCES_BY_BUILD["hg38"].values():
-        (refs_dir / filename).touch()
-        (refs_dir / index_filename).touch()
+        (refs_dir / filename).write_bytes(b"data")
+        (refs_dir / index_filename).write_bytes(b"data")
 
     def _fail_if_called(*a, **k):
         raise AssertionError("should not download when already present")
@@ -463,7 +463,7 @@ def test_step_somatic_resources_downloads_small_pon_without_asking(tmp_path, mon
     def _fake_download(url, dest):
         downloaded.append(dest.name)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.touch()
+        dest.write_bytes(b"data")
         return True
 
     monkeypatch.setattr(setup_env, "_download_file", _fake_download)
@@ -497,7 +497,7 @@ def test_step_somatic_resources_asks_before_large_germline_resource(tmp_path, mo
     def _fake_download(url, dest):
         downloaded.append(dest.name)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.touch()
+        dest.write_bytes(b"data")
         return True
 
     # The small PoN (17 MB) never prompts and downloads regardless — this
@@ -526,3 +526,38 @@ def test_step_somatic_resources_gracefully_returns_partial_on_failure(tmp_path, 
 
     resolved = _step_somatic_resources(refs_dir, "hg38", assume_yes=True)
     assert resolved == {}
+
+
+def test_step_somatic_resources_still_fetches_index_after_spurious_main_failure(tmp_path, monkeypatch):
+    """
+    Regression test for a live bug: gsutil's sliced/resumable-download
+    bookkeeping reported a non-zero exit for the main VCF even though the
+    file transferred completely and correctly (verified: exact expected
+    size, valid BGZF/gzip) — an `and`-chain on that unreliable return value
+    then skipped the .tbi index download entirely. Both downloads must be
+    attempted independently, with success judged by the files actually
+    existing on disk afterward, not by trusting either call's return value.
+    """
+    refs_dir = tmp_path / "refs"
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+
+    calls = []
+
+    def _fake_download(url, dest):
+        calls.append(dest.name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        # Simulate gsutil: the main file's data actually lands on disk
+        # (real download succeeded) even though the tool reports failure.
+        dest.write_bytes(b"data")
+        return "af-only-gnomad" not in dest.name  # main file "fails", index "succeeds"
+
+    monkeypatch.setattr(setup_env, "_download_file", _fake_download)
+
+    resolved = _step_somatic_resources(refs_dir, "hg38", assume_yes=True)
+
+    # The index download must still have been attempted despite the main
+    # file's (spurious) reported failure.
+    assert "af-only-gnomad.hg38.vcf.gz.tbi" in calls
+    # Both files landed on disk with real content, so this must be resolved
+    # as present — not silently dropped because of the tool's bad exit code.
+    assert resolved["germline_resource"] == refs_dir / "af-only-gnomad.hg38.vcf.gz"
