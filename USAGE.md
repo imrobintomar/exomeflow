@@ -2,7 +2,7 @@
 
 **Author:** Robin Kumar, Bioinformatics Scientist, AIIMS New Delhi  
 **Package:** `pip install exomeflow`  
-**Version:** 2.2.4
+**Version:** 2.2.5
 
 ---
 
@@ -203,7 +203,8 @@ exomeflow run \
 exomeflow run --input-dir fastq/ --output results/ --joint-genotyping --intervals targets.bed
 
 # Somatic tumor-only calling
-exomeflow run --input-dir fastq/ --output results/ --mode somatic --germline-resource af-only-gnomad.vcf.gz
+exomeflow run --input-dir fastq/ --output results/ --mode somatic \
+  --germline-resource af-only-gnomad.vcf.gz --panel-of-normals pon.vcf.gz
 
 # Read-depth CNV alongside germline calling
 exomeflow run --input-dir fastq/ --output results/ --cnv --intervals targets.bed
@@ -249,6 +250,7 @@ exomeflow run --help
 | `--joint-genotyping` | No | off | Cohort mode — one shared VCF/annotation, not per-sample |
 | `--cnv` | No | off | Also call read-depth CNVs per sample |
 | `--germline-resource` | No | — | gnomAD AF-only VCF for `--mode somatic` |
+| `--panel-of-normals` | No | — | Pre-built Panel of Normals VCF for `--mode somatic` |
 | `--threads` | No | `24` | Threads for BWA MEM and HaplotypeCaller |
 | `--fastp-threads` | No | `8` | Threads for fastp |
 | `--annovar-threads` | No | `24` | Threads for ANNOVAR |
@@ -500,4 +502,4 @@ exomeflow --version
 
 ---
 
-*ExomeFlow v2.2.4 — Robin Kumar, AIIMS New Delhi, 2026*
+*ExomeFlow v2.2.5 — Robin Kumar, AIIMS New Delhi, 2026*

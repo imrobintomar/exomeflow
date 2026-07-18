@@ -4,8 +4,10 @@ Somatic mode (tumor-only) — Mutect2 calling + Mutect2's own filtering chain.
 Replaces variant_calling.run_haplotype_caller / filtering.run_variant_filtration
 when cfg.mode == "somatic" (mutually exclusive via steps.py applies() gates).
 Tumor-normal pairing is out of scope for V2 — every detected sample is called
-tumor-only; --germline-resource (gnomAD AF-only VCF) is optional but strongly
-recommended to keep the false-positive rate down without a matched normal.
+tumor-only. --germline-resource (gnomAD AF-only VCF) and --panel-of-normals
+(a pre-built PoN VCF) are both optional but strongly recommended to keep the
+false-positive rate down without a matched normal — this is GATK's own
+documented alternative to tumor-normal pairing, not a lesser substitute.
 """
 
 from __future__ import annotations
@@ -44,6 +46,12 @@ def run_mutect2(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
             "will have a higher false-positive rate without a population AF prior.",
             sample,
         )
+    if not cfg.panel_of_normals:
+        logger.warning(
+            "[%s] No --panel-of-normals supplied — tumor-only Mutect2 calls "
+            "will not be filtered against recurrent sequencing artifacts a PoN would catch.",
+            sample,
+        )
 
     cmd = [
         "gatk", "Mutect2",
@@ -54,6 +62,8 @@ def run_mutect2(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
     ]
     if cfg.germline_resource:
         cmd += ["--germline-resource", str(cfg.germline_resource)]
+    if cfg.panel_of_normals:
+        cmd += ["--panel-of-normals", str(cfg.panel_of_normals)]
     if cfg.has_intervals:
         cmd += ["-L", str(cfg.intervals), "--interval-padding", str(cfg.interval_padding)]
 

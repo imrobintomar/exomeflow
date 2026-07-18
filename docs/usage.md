@@ -48,6 +48,7 @@ effect of batching samples.
 | `--joint-genotyping` | off | Cohort mode: one shared VCF instead of per-sample files. |
 | `--cnv` | off | Also call read-depth CNVs per sample (requires `--intervals`). |
 | `--germline-resource` | — | gnomAD AF-only VCF for `--mode somatic` (optional but recommended). |
+| `--panel-of-normals` | — | Pre-built Panel of Normals VCF for `--mode somatic` (optional but recommended). |
 | `--yes`, `-y` | off | Non-interactive: auto-confirm every setup prompt. |
 
 Any of the auto-resolved paths can be passed explicitly to override the value

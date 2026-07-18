@@ -140,6 +140,7 @@ class Config:
     joint_genotyping: bool = False
     call_cnv: bool = False
     germline_resource: Path | None = None  # Mutect2 --germline-resource (gnomAD AF-only)
+    panel_of_normals: Path | None = None  # Mutect2 --panel-of-normals (pre-built PoN VCF)
 
     # ----------------------------------------------------------- performance
     threads: int = 24

@@ -237,6 +237,27 @@ def test_mutect2_uses_germline_resource_when_supplied(cfg: Config, checkpoint: C
     assert any(c[:2] == ["gatk", "CalculateContamination"] for c in calls)
 
 
+def test_mutect2_uses_panel_of_normals_when_supplied(cfg: Config, checkpoint: Checkpoint, monkeypatch):
+    import exomeflow.somatic as mod
+    calls: list = []
+    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+    cfg.panel_of_normals = Path("/refs/pon.vcf.gz")
+
+    mod.run_mutect2("s1", cfg, checkpoint)
+    assert "--panel-of-normals" in calls[0]
+    assert calls[0][calls[0].index("--panel-of-normals") + 1] == "/refs/pon.vcf.gz"
+
+
+def test_mutect2_omits_panel_of_normals_when_not_supplied(cfg: Config, checkpoint: Checkpoint, monkeypatch):
+    import exomeflow.somatic as mod
+    calls: list = []
+    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+    assert cfg.panel_of_normals is None
+
+    mod.run_mutect2("s1", cfg, checkpoint)
+    assert "--panel-of-normals" not in calls[0]
+
+
 # --------------------------------------------------------------------------- CNV
 
 def test_cnv_requires_intervals(cfg: Config, checkpoint: Checkpoint):

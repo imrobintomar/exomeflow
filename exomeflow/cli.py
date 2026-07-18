@@ -176,6 +176,10 @@ def run_command(
         help="Also call read-depth CNVs per sample (requires --intervals)."),
     germline_resource: Optional[Path] = typer.Option(None, "--germline-resource",
         help="gnomAD AF-only VCF for Mutect2 (--mode somatic). Optional but recommended."),
+    panel_of_normals: Optional[Path] = typer.Option(None, "--panel-of-normals",
+        help="Pre-built Panel of Normals VCF for Mutect2 (--mode somatic). "
+             "Optional but recommended — filters recurrent sequencing artifacts "
+             "a population AF resource alone won't catch."),
     assume_yes: bool = typer.Option(False, "--yes", "-y",
         help="Non-interactive: auto-confirm every setup prompt (downloads, etc.) "
              "instead of asking. Needed for unattended/background/CI runs."),
@@ -316,6 +320,7 @@ def run_command(
         joint_genotyping=joint_genotyping,
         call_cnv=call_cnv,
         germline_resource=germline_resource,
+        panel_of_normals=panel_of_normals,
         **cfg_overrides,
     )
 

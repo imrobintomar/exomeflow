@@ -244,7 +244,7 @@ pip install exomeflow
 ### Option 2 Docker
 
 ```bash
-docker pull itsrobintomar/exomeflow:2.2.4
+docker pull itsrobintomar/exomeflow:2.2.5
 
 docker run --rm -it \
   -v /path/to/fastq:/data/fastq \
@@ -252,7 +252,7 @@ docker run --rm -it \
   -v /path/to/vcf:/vcf \
   -v /path/to/annovar:/annovar \
   -v /path/to/results:/data/results \
-  itsrobintomar/exomeflow:2.2.4 run \
+  itsrobintomar/exomeflow:2.2.5 run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -280,10 +280,10 @@ docker run --rm -it \
 
 ```bash
 # Pull directly from Docker Hub
-singularity pull exomeflow-2.2.4.sif docker://itsrobintomar/exomeflow:2.2.4
+singularity pull exomeflow-2.2.5.sif docker://itsrobintomar/exomeflow:2.2.5
 
 # Or build from the definition file
-singularity build exomeflow-2.2.4.sif exomeflow.def
+singularity build exomeflow-2.2.5.sif exomeflow.def
 
 singularity exec \
   --bind /path/to/fastq:/data/fastq \
@@ -291,7 +291,7 @@ singularity exec \
   --bind /path/to/vcf:/vcf \
   --bind /path/to/annovar:/annovar \
   --bind /path/to/results:/data/results \
-  exomeflow-2.2.4.sif exomeflow run \
+  exomeflow-2.2.5.sif exomeflow run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -320,7 +320,7 @@ singularity exec \
   --bind $VCF_DIR:/vcf \
   --bind $ANNOVAR_DIR:/annovar \
   --bind $RESULTS_DIR:/data/results \
-  exomeflow-2.2.4.sif exomeflow run \
+  exomeflow-2.2.5.sif exomeflow run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -425,7 +425,8 @@ of a pipeline run useful for switching reference builds or refreshing databases.
 exomeflow run --input-dir fastq/ --output results/ --joint-genotyping --intervals targets.bed
 
 # Somatic tumor-only calling with Mutect2
-exomeflow run --input-dir fastq/ --output results/ --mode somatic --germline-resource af-only-gnomad.vcf.gz
+exomeflow run --input-dir fastq/ --output results/ --mode somatic \
+  --germline-resource af-only-gnomad.vcf.gz --panel-of-normals pon.vcf.gz
 
 # Read-depth CNV calling alongside the standard germline workflow
 exomeflow run --input-dir fastq/ --output results/ --cnv --intervals targets.bed
@@ -463,6 +464,7 @@ exomeflow run [OPTIONS]
 | `--joint-genotyping` | off | Cohort mode: one shared VCF/annotation instead of per-sample files |
 | `--cnv` | off | Also call read-depth CNVs per sample (needs `--intervals`) |
 | `--germline-resource` | optional | gnomAD AF-only VCF for Mutect2, used by `--mode somatic` |
+| `--panel-of-normals` | optional | Pre-built Panel of Normals VCF for Mutect2, used by `--mode somatic` |
 | `--threads`, `-t` | auto-detected | Threads for BWA MEM and GATK HaplotypeCaller |
 | `--fastp-threads` | `8` | Threads for fastp |
 | `--annovar-threads` | `24` | Threads for ANNOVAR |

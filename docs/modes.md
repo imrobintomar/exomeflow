@@ -31,15 +31,22 @@ flag still produces one annotated file per sample.
 
 ```bash
 exomeflow run --input-dir fastq/ --output results/ \
-  --mode somatic --germline-resource af-only-gnomad.vcf.gz
+  --mode somatic \
+  --germline-resource af-only-gnomad.vcf.gz \
+  --panel-of-normals pon.vcf.gz
 ```
 
 Replaces HaplotypeCaller with Mutect2 in tumor-only mode, and the germline
 hard-filter chain with GATK's contamination-aware filtering chain
 (GetPileupSummaries → CalculateContamination → FilterMutectCalls). Tumor-normal
-paired calling is not yet supported. `--germline-resource` (a gnomAD AF-only
-VCF) is optional but recommended — without it, tumor-only calls carry more
-false positives.
+paired calling is not yet supported — `--germline-resource` (a gnomAD AF-only
+VCF) and `--panel-of-normals` (a pre-built PoN VCF) are both optional but
+strongly recommended: this is GATK's own documented alternative to matched
+tumor-normal calling, not a lesser substitute. Without them, tumor-only calls
+carry more false positives and aren't filtered against recurrent sequencing
+artifacts a PoN would catch. ExomeFlow consumes an existing PoN VCF; building
+one from a set of normal samples isn't automated yet — see GATK's
+`CreateSomaticPanelOfNormals` workflow.
 
 ## Read-depth CNV calling
 

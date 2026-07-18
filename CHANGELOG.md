@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.5
+
+### Added
+
+- **`--panel-of-normals`** — pass a pre-built Panel of Normals VCF to Mutect2
+  for `--mode somatic`, alongside the existing `--germline-resource`. Both
+  are GATK's own documented alternative to matched tumor-normal calling
+  (which ExomeFlow doesn't support yet), not a lesser substitute — a PoN
+  filters recurrent sequencing artifacts that a population allele-frequency
+  resource alone won't catch. Consumes an existing PoN VCF; building one
+  from a set of normal samples isn't automated yet.
+
 ## 2.2.4
 
 Root-caused by reviewing a real annotated output file: ACMG classification
