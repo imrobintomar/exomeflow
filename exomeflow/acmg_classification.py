@@ -51,6 +51,65 @@ _INTERVAR_COLUMN_HINT = "InterVar"
 _INTERVAR_TIMEOUT_S = 21600
 
 
+def _intervar_required_db_names(intervar_bin: Path) -> list[str]:
+    """
+    Parse the `database_names` line out of InterVar's own config.ini,
+    rather than hardcoding its DB set here — that list is InterVar's own
+    to define and can shift across InterVar versions/installs.
+    """
+    try:
+        text = (intervar_bin / "config.ini").read_text()
+    except OSError:
+        return []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("database_names") and "=" in line:
+            names = line.split("=", 1)[1].split()
+            # "1000g2015aug" isn't a literal filename - it expands to
+            # per-population site files.
+            expanded: list[str] = []
+            for n in names:
+                if n == "1000g2015aug":
+                    expanded += [f"{pop}.sites.2015_08" for pop in
+                                 ("AFR", "AMR", "EAS", "EUR", "SAS", "ALL")]
+                else:
+                    expanded.append(n)
+            return expanded
+    return []
+
+
+def _resolve_intervar_db(intervar_bin: Path, cfg: "Config") -> Path:
+    """
+    Pick whichever candidate directory already has more of InterVar's own
+    required database set, instead of always preferring the shared
+    --annovar-db. Found live: the shared humandb tracks the main pipeline's
+    newer database versions (e.g. avsnp150, dbnsfp47a), but InterVar's
+    config.ini hardcodes older, specific versions (avsnp147, dbnsfp42a,
+    clinvar_20210501, ...) that don't exist under those newer names. A
+    machine with a legacy standalone InterVar install can have its own
+    humandb/ already fully populated with exactly what InterVar wants —
+    unconditionally preferring the shared dir meant that complete, already-
+    downloaded set was ignored, and InterVar instead attempted to
+    re-download a ~48GB dbnsfp42a from ANNOVAR's own server (observed live
+    to run at ~500 bytes/sec — a multi-year download at that rate).
+    """
+    own_db = intervar_bin / "humandb"
+    shared_db = Path(cfg.annovar_db) if cfg.annovar_db else None
+    required = _intervar_required_db_names(intervar_bin)
+    buildver = cfg.annovar_buildver
+
+    def _present_count(d: Path | None) -> int:
+        if not d or not d.is_dir():
+            return 0
+        return sum(1 for name in required if (d / f"{buildver}_{name}.txt").exists())
+
+    own_count = _present_count(own_db)
+    shared_count = _present_count(shared_db)
+    if own_count >= shared_count and own_count > 0:
+        return own_db
+    return shared_db if shared_db else own_db
+
+
 def _run_intervar_tool(label: str, vcf: Path, out_prefix: Path, cfg: "Config") -> Path | None:
     from exomeflow.setup_env import detect_intervar_bin
 
@@ -73,7 +132,7 @@ def _run_intervar_tool(label: str, vcf: Path, out_prefix: Path, cfg: "Config") -
     # fully isolated copy: whatever already overlaps is reused for free, and
     # whatever InterVar still needs downloads into the same shared pool
     # instead of duplicating tens of GB in a second location.
-    intervar_db = Path(cfg.annovar_db) if cfg.annovar_db else intervar_bin / "humandb"
+    intervar_db = _resolve_intervar_db(intervar_bin, cfg)
     intervar_db.mkdir(parents=True, exist_ok=True)
 
     # InterVar's required databases are unrelated to --annovar-db and are

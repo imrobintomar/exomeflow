@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.2.12
+
+Found live, same session as 2.2.11: ACMG classification tried to
+re-download InterVar's ~48GB `dbnsfp42a` database from ANNOVAR's own
+server (observed at ~500 bytes/sec — a multi-year download at that rate)
+even though a complete copy already existed on disk.
+
+### Fixed
+
+- **InterVar's database resolution always preferred the shared
+  `--annovar-db`, even when InterVar's own dedicated `humandb/` directory
+  already had a more complete set for InterVar's specific needs.** The
+  shared humandb tracks the main pipeline's newer database versions
+  (avsnp150, dbnsfp47a, clinvar_20240611), but InterVar's `config.ini`
+  hardcodes older, specific versions (avsnp147, dbnsfp42a,
+  clinvar_20210501, ...) that don't exist under those newer names. A
+  machine with a legacy standalone InterVar install can have its own
+  `humandb/` already fully populated with exactly what InterVar wants —
+  unconditionally preferring the shared dir meant that already-complete
+  set was ignored every single run. `_resolve_intervar_db()` now parses
+  InterVar's own `config.ini` for its required database list and picks
+  whichever of the two candidate directories already has more of them,
+  falling back to the shared dir (the original disk-saving intent) only
+  when InterVar's own directory isn't more complete.
+
 ## 2.2.11
 
 Found live: `--mode somatic` OOM-killed (exit 137, `OutOfMemoryError: Java

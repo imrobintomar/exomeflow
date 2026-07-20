@@ -117,3 +117,43 @@ def test_run_intervar_cohort_returns_false_when_intervar_missing(tmp_path: Path,
     """
     monkeypatch.setattr(mod, "_run_intervar_tool", lambda *a, **k: None)
     assert mod.run_intervar_cohort(["s1"], cfg) is False
+
+
+def test_resolve_intervar_db_prefers_own_humandb_when_more_complete(tmp_path: Path, cfg):
+    """
+    Regression test: found live — a machine with a legacy standalone
+    InterVar install can have intervar_bin/humandb already fully populated
+    with InterVar's own required (older) database versions, while the
+    shared --annovar-db only has the main pipeline's newer versions.
+    Unconditionally preferring the shared dir meant InterVar ignored an
+    already-complete local set and tried to re-download a ~48GB file from
+    ANNOVAR's own (observed to be extremely slow) server instead.
+    """
+    intervar_bin = tmp_path / "intervar"
+    own_db = intervar_bin / "humandb"
+    own_db.mkdir(parents=True)
+    (intervar_bin / "config.ini").write_text(
+        "[Annovar]\ndatabase_names = refGene dbnsfp42a avsnp147\n"
+    )
+    (own_db / "hg38_refGene.txt").touch()
+    (own_db / "hg38_dbnsfp42a.txt").touch()
+    (own_db / "hg38_avsnp147.txt").touch()
+
+    shared_db = tmp_path / "shared_annovar_db"
+    shared_db.mkdir()
+    (shared_db / "hg38_refGene.txt").touch()  # only 1 of 3 required files
+
+    cfg.annovar_db = shared_db
+    assert mod._resolve_intervar_db(intervar_bin, cfg) == own_db
+
+
+def test_resolve_intervar_db_falls_back_to_shared_when_own_is_empty(tmp_path: Path, cfg):
+    intervar_bin = tmp_path / "intervar"
+    (intervar_bin / "humandb").mkdir(parents=True)
+    (intervar_bin / "config.ini").write_text("[Annovar]\ndatabase_names = refGene\n")
+
+    shared_db = tmp_path / "shared_annovar_db"
+    shared_db.mkdir()
+    cfg.annovar_db = shared_db
+
+    assert mod._resolve_intervar_db(intervar_bin, cfg) == shared_db
