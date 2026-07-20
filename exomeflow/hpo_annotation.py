@@ -9,6 +9,7 @@ failing the pipeline — annotation output without HPO columns is still useful.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,24 @@ HPO_MAPPING_FILE = HPO_CACHE_DIR / "genes_to_phenotype.txt"
 HPO_DOWNLOAD_URL = (
     "https://purl.obolibrary.org/obo/hp/hpoa/genes_to_phenotype.txt"
 )
+
+
+_GENE_DIST_SUFFIX = re.compile(r"\(.*\)$")
+
+
+def _split_genes(raw: object) -> list[str]:
+    """
+    ANNOVAR's Gene.refGene can be a single symbol, or a composite string:
+    ';'-joined for variants overlapping multiple genes (e.g. "GENE1;GENE2"),
+    or ','-joined with parenthesized distances for intergenic calls (e.g.
+    "GENE1(12345),GENE2(6789)"). A plain merge on the raw column only ever
+    matches a single canonical symbol, so multi-gene rows silently got no
+    HPO terms with no signal that anything was missed. Found via audit.
+    """
+    if not isinstance(raw, str) or not raw:
+        return []
+    parts = re.split(r"[;,]", raw)
+    return [_GENE_DIST_SUFFIX.sub("", p).strip() for p in parts if p.strip()]
 
 
 def _load_hpo_map() -> "pd.DataFrame | None":
@@ -92,7 +111,22 @@ def enrich(label: str, multianno_txt: Path, output_txt: Path) -> bool:
     hpo_map = _load_hpo_map()
     table = pd.read_csv(multianno_txt, sep="\t", dtype=str)
     if hpo_map is not None and "Gene.refGene" in table.columns:
-        table = table.merge(hpo_map, on="Gene.refGene", how="left")
+        lookup = hpo_map.set_index("Gene.refGene")[["HPO_ID", "HPO_terms"]].to_dict("index")
+
+        def _lookup_row(raw: object) -> "pd.Series":
+            ids: set[str] = set()
+            terms: set[str] = set()
+            for gene in _split_genes(raw):
+                hit = lookup.get(gene)
+                if hit:
+                    ids.update(hit["HPO_ID"].split(";"))
+                    terms.update(hit["HPO_terms"].split(";"))
+            return pd.Series({
+                "HPO_ID": ";".join(sorted(ids)) if ids else None,
+                "HPO_terms": ";".join(sorted(terms)) if terms else None,
+            })
+
+        table[["HPO_ID", "HPO_terms"]] = table["Gene.refGene"].apply(_lookup_row)
     table.to_csv(output_txt, sep="\t", index=False)
 
     if hpo_map is None:

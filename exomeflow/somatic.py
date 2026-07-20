@@ -107,9 +107,18 @@ def run_somatic_filtration(sample: str, cfg: "Config", checkpoint: Checkpoint) -
             "gatk", "GetPileupSummaries",
             "-I", str(bam),
             "-V", str(cfg.germline_resource),
-            "-L", str(cfg.germline_resource),
             "-O", str(pileups),
         ]
+        # -L defaults to the full germline-resource VCF as the scan region,
+        # which for the shipped gnomAD AF-only resource means a genome-wide
+        # scan (~3.2GB hg38 / ~14GB GRCh37) even for a targeted exome run —
+        # a severe, easily-avoidable slowdown. Unlike Mutect2 itself (which
+        # already restricts to cfg.intervals below), this never applied
+        # --intervals at all. Found via audit.
+        if cfg.has_intervals:
+            pileup_cmd += ["-L", str(cfg.intervals), "--interval-padding", str(cfg.interval_padding)]
+        else:
+            pileup_cmd += ["-L", str(cfg.germline_resource)]
         run_cmd(pileup_cmd, env=env, step_name="GetPileupSummaries", sample=sample)
 
         logger.info("[%s] Running CalculateContamination ...", sample)

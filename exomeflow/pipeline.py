@@ -17,6 +17,7 @@ import logging
 import signal
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -130,7 +131,7 @@ def process_sample(sample: str, cfg: "Config", timestamp: str) -> None:
     get_sample_logger(sample, cfg.log_dir, timestamp)
 
     sample_logger = logging.getLogger(f"exomeflow.{sample}")
-    checkpoint = Checkpoint(cfg.checkpoint_dir, cfg.genome_build)
+    checkpoint = Checkpoint(cfg.checkpoint_dir, cfg.genome_build, cfg.mode, cfg.joint_genotyping)
 
     try:
         sample_logger.info("=" * 50)
@@ -205,7 +206,7 @@ def run_pipeline(cfg: "Config") -> int:
     logger.info("Found %d sample(s): %s", len(samples), ", ".join(samples))
     logger.info("Will process %d sample(s) in parallel", cfg.max_workers)
 
-    checkpoint = Checkpoint(cfg.checkpoint_dir, cfg.genome_build)
+    checkpoint = Checkpoint(cfg.checkpoint_dir, cfg.genome_build, cfg.mode, cfg.joint_genotyping)
 
     # Skip already-completed samples
     pending = [s for s in samples if not _sample_is_complete(s, cfg, checkpoint)]
@@ -245,9 +246,29 @@ def run_pipeline(cfg: "Config") -> int:
                     pool.submit(process_sample, s, cfg, timestamp): s
                     for s in pending
                 }
+                pool_broken = False
                 for future in as_completed(future_to_sample):
                     sample = future_to_sample[future]
-                    exc = future.exception()
+                    if pool_broken:
+                        # Once BrokenProcessPool fires once, it fires
+                        # identically for every other still-pending future —
+                        # attributing that generic pool-death error to each
+                        # sample individually is misleading (it reads as if
+                        # each sample's own step failed). Report once, then
+                        # bulk-fail the rest. Found via audit.
+                        failed.append(sample)
+                        continue
+                    try:
+                        exc = future.exception()
+                    except BrokenProcessPool as exc:
+                        logger.error(
+                            "Worker pool crashed (a worker likely segfaulted "
+                            "or was OOM-killed) — remaining samples were "
+                            "never attempted and are safe to retry: %s", exc,
+                        )
+                        pool_broken = True
+                        failed.append(sample)
+                        continue
                     if exc:
                         logger.error("Sample %s failed: %s", sample, exc)
                         failed.append(sample)
@@ -269,9 +290,25 @@ def run_pipeline(cfg: "Config") -> int:
     # *entire* cohort phase - including MultiQC - on an otherwise fully
     # successful run.
     cohort_samples = [s for s in samples if s not in failed]
+    # The joint_genotyping -> cohort_filter -> cohort_annovar -> cohort_hpo
+    # -> cohort_acmg chain is a strict pipeline: each step consumes the
+    # prior step's output file. Without this flag, one root failure (e.g.
+    # joint_genotyping) used to cascade into 4 more guaranteed-to-fail
+    # derivative errors (each against a missing/stale input), burying the
+    # real cause under noise. multiqc is deliberately exempt — it's
+    # independent of this chain (always attempted, best-effort). Found via
+    # audit.
+    cohort_chain_ok = True
     if cohort_samples:
         for cstep in COHORT_STEPS:
             if not cstep.applies(cfg):
+                continue
+            is_chained = cstep.applies is _cohort_active
+            if is_chained and not cohort_chain_ok:
+                logger.warning(
+                    "[cohort] Skipping '%s' — an earlier cohort step failed this run.",
+                    cstep.name,
+                )
                 continue
             if checkpoint.done("__cohort__", cstep.name):
                 logger.info("[cohort] %s already completed, skipping.", cstep.name)
@@ -291,6 +328,8 @@ def run_pipeline(cfg: "Config") -> int:
             except PipelineStepError as exc:
                 logger.error("[cohort] Failed at step '%s': %s", cstep.name, exc)
                 failed.append(f"__cohort__:{cstep.name}")
+                if is_chained:
+                    cohort_chain_ok = False
 
     # --------------------------------------------------------------- summary
     logger.info("=" * 50)

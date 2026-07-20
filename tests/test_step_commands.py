@@ -23,6 +23,27 @@ def _recorder(calls: list):
     return _fake
 
 
+_OUTPUT_FLAGS = ("-O", "--denoised-copy-ratios")
+
+
+def _recorder_with_output(calls: list):
+    """
+    Like _recorder, but also writes real (non-empty) bytes to whatever path
+    follows a known output flag in the command — needed for steps that
+    verify their output actually landed on disk before checkpointing
+    (found via audit).
+    """
+    def _fake(cmd, **kwargs):
+        calls.append(cmd)
+        for flag in _OUTPUT_FLAGS:
+            if flag in cmd:
+                out = Path(cmd[cmd.index(flag) + 1])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"data")
+        return MagicMock(returncode=0)
+    return _fake
+
+
 @pytest.fixture
 def checkpoint(tmp_path: Path) -> Checkpoint:
     return Checkpoint(tmp_path / ".checkpoints")
@@ -211,7 +232,7 @@ def test_haplotype_caller_default_vs_gvcf(cfg: Config, checkpoint: Checkpoint, m
 def test_hard_filter_shared_by_sample_and_cohort_paths(cfg: Config, monkeypatch):
     import exomeflow.filtering as mod
     calls: list = []
-    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+    monkeypatch.setattr(mod, "run_cmd", _recorder_with_output(calls))
     cfg.setup_directories()
 
     mod.hard_filter(
@@ -346,6 +367,28 @@ def test_mutect2_uses_germline_resource_when_supplied(cfg: Config, checkpoint: C
     assert any(c[:2] == ["gatk", "CalculateContamination"] for c in calls)
 
 
+def test_somatic_pileup_uses_intervals_when_supplied(cfg: Config, checkpoint: Checkpoint, monkeypatch, tmp_path: Path):
+    """
+    Regression test: found via audit — GetPileupSummaries used to always
+    scan the full germline-resource VCF as its -L region, even for a
+    targeted exome run with --intervals supplied. That's a severe,
+    easily-avoidable slowdown (the shipped gnomAD AF-only resource is
+    multi-GB) unlike Mutect2 itself, which already restricted to
+    cfg.intervals.
+    """
+    import exomeflow.somatic as mod
+    calls: list = []
+    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+    cfg.germline_resource = Path("/refs/af-only-gnomad.vcf.gz")
+    cfg.intervals = tmp_path / "targets.bed"
+    cfg.intervals.touch()
+
+    mod.run_somatic_filtration("s1", cfg, checkpoint)
+    pileup_cmd = next(c for c in calls if c[:2] == ["gatk", "GetPileupSummaries"])
+    assert pileup_cmd[pileup_cmd.index("-L") + 1] == str(cfg.intervals)
+    assert str(cfg.germline_resource) not in pileup_cmd[pileup_cmd.index("-L"):]
+
+
 def test_mutect2_uses_panel_of_normals_when_supplied(cfg: Config, checkpoint: Checkpoint, monkeypatch):
     import exomeflow.somatic as mod
     calls: list = []
@@ -380,7 +423,8 @@ def test_cnv_requires_intervals(cfg: Config, checkpoint: Checkpoint):
 def test_cnv_command_chain(cfg: Config, checkpoint: Checkpoint, monkeypatch, tmp_path: Path):
     import exomeflow.cnv as mod
     calls: list = []
-    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+    monkeypatch.setattr(mod, "run_cmd", _recorder_with_output(calls))
+    monkeypatch.setattr(mod.shutil, "which", lambda name: "/usr/bin/Rscript")
     cfg.intervals = tmp_path / "targets.bed"
     cfg.intervals.touch()
 
@@ -402,7 +446,7 @@ def test_joint_genotyping_requires_intervals(cfg: Config):
 def test_joint_genotyping_command_chain(cfg: Config, monkeypatch, tmp_path: Path):
     import exomeflow.joint_genotyping as mod
     calls: list = []
-    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+    monkeypatch.setattr(mod, "run_cmd", _recorder_with_output(calls))
     cfg.intervals = tmp_path / "targets.bed"
     cfg.intervals.touch()
 

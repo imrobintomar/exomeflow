@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from exomeflow.config import Config
 
 
@@ -76,3 +78,31 @@ def test_setup_directories_only_creates_whats_needed(cfg: Config):
     cfg.setup_directories()
     assert cfg.cohort_dir.exists()
     assert cfg.cnv_dir.exists()
+
+
+def test_invalid_mode_raises(tmp_path: Path):
+    """
+    Regression test: found via audit — Literal["germline","somatic"] is not
+    enforced at runtime, so a typo'd mode used to construct a Config
+    silently, match neither mode's step predicates, and produce zero
+    variant calling while every step still reported success.
+    """
+    with pytest.raises(ValueError, match="mode"):
+        Config(
+            input_dir=tmp_path / "fastq", output_dir=tmp_path / "results",
+            reference=tmp_path / "ref.fa", dbsnp=tmp_path / "dbsnp.vcf.gz",
+            mills=tmp_path / "mills.vcf.gz", known_indels=tmp_path / "known_indels.vcf.gz",
+            annovar_bin=tmp_path / "annovar", annovar_db=tmp_path / "annovar" / "humandb",
+            mode="Somatic",
+        )
+
+
+def test_invalid_genome_build_raises(tmp_path: Path):
+    with pytest.raises(ValueError, match="genome_build"):
+        Config(
+            input_dir=tmp_path / "fastq", output_dir=tmp_path / "results",
+            reference=tmp_path / "ref.fa", dbsnp=tmp_path / "dbsnp.vcf.gz",
+            mills=tmp_path / "mills.vcf.gz", known_indels=tmp_path / "known_indels.vcf.gz",
+            annovar_bin=tmp_path / "annovar", annovar_db=tmp_path / "annovar" / "humandb",
+            genome_build="hg19",
+        )

@@ -161,6 +161,18 @@ class Config:
     checkpoint_dir: Path = field(init=False)
 
     def __post_init__(self) -> None:
+        # Defense-in-depth, same rationale as the protocols/operations count
+        # check below: cli.py already validates these, but any other caller
+        # building a Config directly bypassed it entirely. Literal[...] is
+        # not enforced at runtime, so a typo'd mode (e.g. "Somatic") used to
+        # construct silently, match neither the germline nor somatic step
+        # predicates, and produce zero variant calling while every step
+        # still reported success. Found via audit.
+        if self.mode not in ("germline", "somatic"):
+            raise ValueError(f"mode must be 'germline' or 'somatic', got {self.mode!r}")
+        if self.genome_build not in ("hg38", "GRCh37"):
+            raise ValueError(f"genome_build must be 'hg38' or 'GRCh37', got {self.genome_build!r}")
+
         self.output_dir = Path(self.output_dir)
         self.fastp_dir = self.output_dir / "filtered_fastp"
         self.map_dir = self.output_dir / "Mapsam"

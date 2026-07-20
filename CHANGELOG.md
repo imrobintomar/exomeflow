@@ -1,5 +1,111 @@
 # Changelog
 
+## 2.2.9
+
+Second deep audit release — the 2.2.8 audit fixed 12 issues but a follow-up
+audit (4 parallel passes over provisioning, the core pipeline, annotation/
+advanced modes, and CLI/logging/utils, each independently verified) found
+the same bug classes 2.2.8 fixed had gaps: dimensions the checkpoint key
+still ignored, cohort steps that still didn't distinguish a graceful skip
+from success, and output-verification that hadn't been extended to every
+step that needed it. 20 issues fixed here, each with a regression test.
+
+### Fixed
+
+- **Micromamba bootstrap silently wiped every previously-installed tool.**
+  `_step_system_tools()` called `micromamba create -p <same-prefix>` once
+  per tool (bwa → samtools → fastp → perl); each `create` against an
+  existing prefix re-solves for the new package only and drops what was
+  there before — verified live, only the last tool (perl) ever survived on
+  a machine with no pre-existing conda/mamba. Now uses `create` only to
+  make the prefix, then `install` for every subsequent package.
+- **Checkpoint key ignored `--joint-genotyping` and `--mode`.** Toggling
+  `--joint-genotyping` on an existing `--output` dir left HaplotypeCaller's
+  checkpoint pointing at the wrong output type (`.vcf` vs `.g.vcf.gz`),
+  permanently blocking the cohort phase. Switching `--mode` left the
+  `annovar` checkpoint stuck against a stale PASS VCF silently overwritten
+  by the other mode's calls. Checkpoint filenames now include both.
+- **ACMG merge failures were checkpointed as done anyway.** `_merge_acmg`
+  had three internal failure paths (missing file, InterVar's classification
+  column not found, missing join keys) that only logged a warning — the
+  caller checkpointed based on whether InterVar produced *any* file, not
+  whether ACMG columns were actually attached. `_merge_acmg` now returns a
+  bool that both `run_intervar` and `run_intervar_cohort` (which previously
+  never returned anything at all, always implicitly treated as success)
+  thread into their checkpoint decision.
+- **`filtering.py`'s hard-filter chain and `joint_genotyping.py`'s
+  `GenotypeGVCFs` never verified their output before checkpointing or
+  deleting intermediates** — the same "exit 0 ≠ real output" class already
+  fixed for SortSam/ApplyBQSR/ANNOVAR, extended here.
+- **GATK's minimum-version check was dead code for the normal bundled-GATK
+  path** — `shutil.which("gatk")` is false until PATH is updated later in
+  the same function, so `version_ok` silently defaulted `True`
+  unconditionally for nearly every real install. Now checks the resolved
+  bundled binary directly.
+- **Reference-file completeness checks omitted every companion index**
+  (`.fai`, `.dict`, the 5-file BWA index) — only the 4 base files were
+  checked, so a directory with FASTA+VCFs but no indices passed "already
+  have refs" and failed much later, deep inside `bwa mem`/GATK.
+- **`Config.__post_init__` didn't validate `mode`/`genome_build`** —
+  `Literal[...]` isn't enforced at runtime, so a typo'd mode constructed
+  silently, matched no step predicate, and produced zero variant calling
+  while every step still reported success.
+- **`--output` had no path-type validation** (unlike `--intervals`, fixed
+  in 2.2.8) — pointing it at an existing file crashed only after the
+  hours-long first-run setup wizard completed. Now fails fast.
+- **`--joint-genotyping --mode somatic` was silently accepted as a no-op**
+  — `pipeline.py` already ignores joint genotyping outside germline mode,
+  but nothing told the user their flag had zero effect. Now warns.
+- **One cohort-step failure cascaded into every downstream cohort step
+  failing too** — `joint_genotyping → cohort_filter → cohort_annovar →
+  cohort_hpo → cohort_acmg` is a strict pipeline; one root failure used to
+  produce 4 more guaranteed-fail derivative errors, burying the real cause.
+  The chain now stops after the first failure (MultiQC, independent of the
+  chain, still always runs).
+- **HPO enrichment never split ANNOVAR's multi-gene `Gene.refGene`
+  values** (`;`-joined for multi-gene overlap, `,`-joined with
+  "(distance)" suffixes for intergenic calls) — those rows silently got no
+  HPO terms since a plain merge only ever matches a single bare symbol.
+- **A corrupted/partial HPO mapping or OMIM `mim2gene.txt` download was
+  never re-detected** — both checks only tested file existence, so a
+  truncated file from an interrupted download passed forever. Both now
+  verify non-zero size and delete-then-retry on a failed/incomplete
+  download instead of leaving a poisoned cache in place.
+- **Somatic mode's `GetPileupSummaries` ignored `--intervals`**, scanning
+  the entire multi-GB germline-resource VCF genome-wide even for a
+  targeted exome run — unlike Mutect2 itself, which already restricted to
+  `--intervals`. A severe, easily-avoidable performance regression.
+- **CNV's `PlotDenoisedCopyRatios` output was never verified before
+  checkpointing**, and nothing checked for `Rscript` despite GATK's
+  plotting step depending on it (and degrading silently, no plot, no
+  error, when it's missing). Now verifies the core `denoised_cr.tsv`
+  deliverable and warns upfront if `Rscript` isn't on PATH.
+- **wget/curl download failures were blanket-ignored**, copying a pattern
+  that's only actually needed for gsutil's known false-negative exit code
+  — a killed/timed-out wget run could leave a truncated-but-non-empty file
+  that was misreported as a successful download. wget/curl's exit code is
+  now checked too, and a failed download's partial file is removed instead
+  of being left to fool the next run's completeness check (applied to
+  reference files and ANNOVAR databases).
+- **`~/.exomeflow/config.json` writes were not atomic** — a kill mid-write
+  could leave a truncated file that `load_config()`'s broad exception
+  handler silently treated as "no config at all." Now writes to a temp
+  file and renames over the target.
+- **`alignment.py` could orphan a running `bwa` subprocess** if the piped
+  `samtools` `Popen` failed to start (e.g. `samtools` missing from PATH at
+  run time) — `bwa`'s already-spawned process was never closed/killed.
+- **A crashed worker process misattributed a generic pool-death error to
+  every other in-flight sample individually** — `BrokenProcessPool` is
+  raised identically for every pending future once a worker segfaults or
+  is OOM-killed; this is now caught once and reported clearly instead of
+  looking like N independent per-sample failures.
+- **Resource detection ignored container/cgroup CPU and RAM limits** —
+  `os.cpu_count()`/`/proc/meminfo` report the host's full resources even
+  inside a `--cpus`/`--memory`-limited Docker container, which could
+  recommend a thread count or JVM heap the container isn't actually
+  allotted. Now uses `os.sched_getaffinity()` for CPU count and reads the
+  cgroup v1/v2 memory limit to cap the RAM figures used for auto-sizing.
+
 ## 2.2.8
 
 Deep audit release — a full read-only pass over provisioning, the core

@@ -255,7 +255,17 @@ def save_config(data: dict) -> None:
     existing = load_config()
     existing.update({k: str(v) for k, v in data.items() if v is not None})
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(existing, indent=2))
+    # Write to a sibling temp file then rename over the target — os.replace
+    # is atomic on POSIX, so a concurrent reader/writer or a kill mid-write
+    # never observes a truncated/partially-written config.json (write_text()
+    # truncates in place first, so a process killed between the truncate and
+    # the write used to leave a 0-byte or partial file that load_config()'s
+    # broad `except Exception: return {}` would silently treat as "no config
+    # at all", forcing a full re-resolution/re-download cycle with no
+    # diagnostic explaining why). Found via audit.
+    tmp_path = CONFIG_PATH.with_suffix(f"{CONFIG_PATH.suffix}.tmp")
+    tmp_path.write_text(json.dumps(existing, indent=2))
+    os.replace(tmp_path, CONFIG_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -641,12 +651,28 @@ def _step_system_tools(outdated: frozenset[str] = frozenset()) -> list[str]:
         console.print(f"  [yellow]→[/yellow]  {verb} {binary} ...")
         channel, pkg = spec.split("::")
         if using_micromamba:
-            # "create" (not "install") - micromamba's "install" refuses to
-            # target a prefix that isn't already a created environment, but
-            # "create" against an existing prefix just adds the package
-            # alongside what's already there (verified: safe to call
-            # repeatedly against the same fixed MICROMAMBA_ENV prefix).
-            cmd = [conda, "create", "-y", "-p", str(MICROMAMBA_ENV),
+            # micromamba's "install" refuses to target a prefix that isn't
+            # already a created environment — but "create" against an
+            # *existing* prefix does NOT just add the package alongside
+            # what's there, contrary to what this comment used to claim: it
+            # re-solves for the new request only and silently drops
+            # whatever a prior iteration of this same loop installed
+            # (verified live: installing gzip, then tar, then unzip into
+            # the same prefix via repeated `create -p` calls left only
+            # unzip on disk, with every call still exiting 0). Use "create"
+            # solely to make the prefix on the very first package, then
+            # "install" for every subsequent one so earlier tools survive.
+            # Found via audit — this previously meant only the *last*
+            # system tool in _SYSTEM_TOOLS (perl) ever actually remained
+            # installed on a machine with no pre-existing conda/mamba.
+            #
+            # MICROMAMBA_ENV itself is mkdir'd unconditionally above before
+            # this loop even starts, so a bare directory existing does NOT
+            # mean micromamba has actually created an environment there yet
+            # — check for conda-meta/, which only appears after the first
+            # successful `create`.
+            subcmd = "install" if (MICROMAMBA_ENV / "conda-meta").is_dir() else "create"
+            cmd = [conda, subcmd, "-y", "-p", str(MICROMAMBA_ENV),
                    "-c", channel, "-c", "conda-forge", pkg]
         else:
             cmd = [conda, "install", "-y", "-c", channel, pkg]
@@ -689,17 +715,24 @@ def _step_reference_files(
     Returns (resolved_refs_dir, failures).
     """
     reference_files = REFERENCE_FILES_BY_BUILD[genome_build]
-    required_names = set(_CANONICAL_REF_NAMES[genome_build].values())
+    # The FULL required set (all 14 files, including .fai/.dict/BWA index) -
+    # not just the 4 base files (fasta/dbsnp/mills/known_indels) that
+    # _CANONICAL_REF_NAMES tracks for mapping to Config fields. Found via
+    # audit: a directory holding the FASTA + 3 VCFs but not the prebuilt BWA
+    # index or .fai/.dict (e.g. files copied from a colleague, or an
+    # interrupted earlier download) used to be accepted as "complete", and
+    # nothing in this codebase auto-generates a missing index - the failure
+    # only surfaced much later, deep inside `bwa mem`/GATK.
+    required_names = {fn for fn, _, _ in reference_files}
     console.print(Panel(f"[bold]Step 3 - Reference Genome ({genome_build})[/bold]", style="blue"))
     failures: list[str] = []
 
-    # If user passed --existing-refs, check there first. Requires all 4
-    # actually-needed files (fasta + dbSNP/Mills/known-indels VCFs) - not
-    # just *any* single match among the 14 possible files/indexes
-    # _scan_refs looks for. Found via audit: a directory holding only a
-    # FASTA (no VCFs at all - a very plausible real scenario for a user who
-    # already has a reference genome but not GATK's known-sites bundle) used
-    # to be accepted as complete, so the required VCFs were never fetched.
+    # If user passed --existing-refs, check there first. Requires every
+    # file in reference_files, not just *any* single match among them.
+    # Found via audit: a directory holding only a FASTA (no VCFs at all - a
+    # very plausible real scenario for a user who already has a reference
+    # genome but not GATK's known-sites bundle) used to be accepted as
+    # complete, so the required VCFs were never fetched.
     if existing_refs_dir:
         found = _scan_refs(existing_refs_dir, genome_build)
         if required_names.issubset(found):
@@ -779,19 +812,26 @@ def _step_reference_files(
             console.print(f"  [green]✔[/green]  {filename} already present")
             continue
         console.print(f"  [cyan]→[/cyan]  Downloading {filename} ({description}, ~{size_mb:,} MB) ...")
-        # Not trusting the tool's own return value alone: gsutil's sliced/
-        # resumable-download bookkeeping can report a spurious non-zero
-        # exit even when the file actually transferred completely and
-        # correctly (found live, fixed for somatic resources in 2.2.7 —
-        # applying the same fix here, since this download loop had the
-        # identical pattern).
         if use_gsutil:
+            # gsutil's sliced/resumable-download bookkeeping can report a
+            # spurious non-zero exit even when the file actually transferred
+            # completely and correctly (found live, fixed for somatic
+            # resources in 2.2.7) — disk state is the only trustworthy
+            # signal for this specific tool.
             _gsutil_cp(f"{gcs_base}/{filename}", dest)
+            ok = True
         else:
-            _download_file(f"{https_base}/{filename}", dest)
-        if dest.exists() and dest.stat().st_size > 0:
+            # wget/curl's exit code, unlike gsutil's, IS trustworthy here —
+            # blanket-ignoring it (as this loop used to) meant a killed/
+            # timed-out download that left a truncated-but-non-empty file
+            # was misreported as success. Found via audit.
+            ok = _download_file(f"{https_base}/{filename}", dest)
+        if ok and dest.exists() and dest.stat().st_size > 0:
             console.print(f"  [green]✔[/green]  {filename}")
         else:
+            # Don't leave a truncated file behind to fool a later run's
+            # completeness check.
+            dest.unlink(missing_ok=True)
             console.print(f"  [red]✘[/red]  {filename} download failed")
             failures.append(f"Download failed: {filename}")
 
@@ -1026,6 +1066,12 @@ def _step_annovar_databases(
         if db_file.exists() and db_file.stat().st_size > 0 and idx_ok:
             console.print(f"  [green]✔[/green]  {db_name}")
         else:
+            # Don't leave a truncated .txt/.idx behind — annovar_databases_
+            # complete() only checks existence, not size, so a partial file
+            # left in place would be silently treated as "present" forever.
+            # Found via audit.
+            db_file.unlink(missing_ok=True)
+            idx_file.unlink(missing_ok=True)
             console.print(f"  [red]✘[/red]  {db_name} download failed")
             failures.append(f"ANNOVAR db download failed: {db_name}")
 
@@ -1074,11 +1120,16 @@ def _ensure_mim2gene(intervar_dir: Path) -> None:
     sample despite InterVar itself being correctly installed.
     """
     dest = intervar_dir / "intervardb" / "mim2gene.txt"
-    if dest.exists():
+    if dest.exists() and dest.stat().st_size > 0:
         return
     logger.info("Downloading OMIM mim2gene.txt (required by InterVar's ACMG classification) ...")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if not _download_file(MIM2GENE_URL, dest):
+    ok = _download_file(MIM2GENE_URL, dest)
+    if not (ok and dest.exists() and dest.stat().st_size > 0):
+        # Don't leave a truncated file behind — it would silently pass the
+        # exists()-only check above on the next run and permanently block
+        # ACMG classification with no clear diagnostic. Found via audit.
+        dest.unlink(missing_ok=True)
         logger.warning(
             "mim2gene.txt download failed  ACMG classification will fail until "
             "it's placed at %s (freely downloadable, no registration required).",
@@ -1116,14 +1167,20 @@ def _step_hpo_mapping() -> bool:
     """Auto-download the HPO gene-to-phenotype mapping used for HPO enrichment."""
     from exomeflow.hpo_annotation import HPO_CACHE_DIR, HPO_DOWNLOAD_URL, HPO_MAPPING_FILE
 
-    if HPO_MAPPING_FILE.exists():
+    if HPO_MAPPING_FILE.exists() and HPO_MAPPING_FILE.stat().st_size > 0:
         return True
     HPO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("Downloading HPO gene-to-phenotype mapping ...")
     ok = _download_file(HPO_DOWNLOAD_URL, HPO_MAPPING_FILE)
-    if not ok:
+    verified = ok and HPO_MAPPING_FILE.exists() and HPO_MAPPING_FILE.stat().st_size > 0
+    if not verified:
+        # Don't leave a truncated file behind — it would silently pass the
+        # exists()-only check above on the next run, permanently poisoning
+        # HPO enrichment with an incomplete mapping and no signal why.
+        # Found via audit.
+        HPO_MAPPING_FILE.unlink(missing_ok=True)
         logger.warning("HPO mapping download failed  HPO enrichment will be skipped.")
-    return ok
+    return verified
 
 
 def _step_multiqc() -> bool:
@@ -1272,13 +1329,21 @@ def check_and_fix_dependencies(
     for name, version_cmd, label, min_version in _TOOL_CHECKS:
         present = bool(shutil.which(name)) or (name == "gatk" and gatk_path is not None)
         version_ok, found_ver = (True, "")
-        if present and shutil.which(name):
-            # Only version-check a tool actually resolved via PATH — a
-            # bundled-but-not-yet-PATH'd GATK is checked once it's added to
-            # PATH later in this same function.
+        if name == "gatk" and gatk_path is not None and not shutil.which(name):
+            # Bundled-but-not-yet-PATH'd GATK: check the resolved binary
+            # directly instead of skipping the version check entirely. GATK
+            # is never on PATH at this point in the common case (detect_
+            # gatk_bin() resolves it via saved config/source-root/cache, and
+            # PATH is only updated later in this same function) — so
+            # `present and shutil.which(name)` below used to be false for
+            # nearly every real install, leaving version_ok defaulted True
+            # unconditionally and silently never enforcing min_version for
+            # a stale/corrupted cached GATK. Found via audit.
+            version_ok, found_ver = _tool_version_ok([str(gatk_path), "--version"], min_version)
+        elif present and shutil.which(name):
             version_ok, found_ver = _tool_version_ok(version_cmd, min_version)
         ok = present and version_ok
-        if present and shutil.which(name) and not version_ok:
+        if present and not version_ok:
             status = f"[yellow]⚠ {found_ver} < {min_version}[/yellow]"
             tool_outdated.append(name)
         else:

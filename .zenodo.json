@@ -1,6 +1,6 @@
 {
   "title": "ExomeFlow: A Production-Quality Python Package for Automated Whole Exome Sequencing Analysis",
-  "version": "2.2.8",
+  "version": "2.2.9",
   "description": "<p><strong>ExomeFlow</strong> is a Python package that provides a complete, automated Whole Exome Sequencing (WES) analysis workflow from raw FASTQ files to functionally annotated variants in a single reproducible CLI command.</p><p>It implements the GATK best-practice variant calling pipeline: <strong>fastp</strong> (QC) → <strong>BWA MEM</strong> (alignment) → <strong>GATK SortSam / MarkDuplicates / BQSR</strong> → <strong>HaplotypeCaller</strong> → SNP/INDEL hard filtering → <strong>ANNOVAR</strong> functional annotation against 8 databases (refGene, ClinVar, gnomAD, dbNSFP, COSMIC, ExAC, avSNP150, dbscSNV).</p><p><strong>Key features:</strong></p><ul><li>One-command installation: <code>pip install exomeflow</code></li><li>Multi-sample cohort processing with checkpointing and resume</li><li>Automatic dependency detection and setup</li><li>Docker and Singularity containers for HPC</li><li>Benchmarked on NA12878 (GIAB): SNP precision 99.4%, F1 78.4%</li></ul>",
   "upload_type": "software",
   "publication_date": "2025-05-13",

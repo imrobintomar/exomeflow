@@ -149,14 +149,25 @@ def _run_intervar_tool(label: str, vcf: Path, out_prefix: Path, cfg: "Config") -
     return output
 
 
-def _merge_acmg(label: str, intervar_table: Path, enriched_txt: Path) -> None:
-    """Merge ACMG_classification / ACMG_evidence columns onto *enriched_txt* in place."""
+def _merge_acmg(label: str, intervar_table: Path, enriched_txt: Path) -> bool:
+    """
+    Merge ACMG_classification / ACMG_evidence columns onto *enriched_txt* in
+    place. Returns whether columns were actually written — used by the
+    caller to decide whether to checkpoint. Every early-return path here
+    used to be silently treated as success by the caller (InterVar produced
+    *a* file, so `run_intervar` checkpointed the step) even when this
+    function did nothing — e.g. InterVar's classification column not found
+    via the `_INTERVAR_COLUMN_HINT` substring match (a real risk: this
+    module's own header notes InterVar's exact output columns were never
+    hands-on verified). Found via audit — same "checkpoint on a graceful
+    skip" bug class already fixed for HPO/MultiQC, missed here.
+    """
     if not enriched_txt.exists():
         logger.warning(
             "[%s] Enriched annotation table not found: %s — skipping ACMG merge.",
             label, enriched_txt,
         )
-        return
+        return False
 
     # Peek at the header only (cheap) before loading the full table — the
     # InterVar output re-embeds most of ANNOVAR's own annotation columns,
@@ -169,7 +180,7 @@ def _merge_acmg(label: str, intervar_table: Path, enriched_txt: Path) -> None:
             "[%s] Could not locate InterVar's classification column in %s — skipping merge.",
             label, intervar_table,
         )
-        return
+        return False
     key_cols = [c for c in ("Chr", "Start", "End", "Ref", "Alt") if c in header_cols]
 
     intervar = pd.read_csv(intervar_table, sep="\t", dtype=str, usecols=key_cols + [col])
@@ -185,8 +196,9 @@ def _merge_acmg(label: str, intervar_table: Path, enriched_txt: Path) -> None:
         )
         table.to_csv(enriched_txt, sep="\t", index=False)
         logger.log(25, "[%s] ACMG classification merged into %s", label, enriched_txt)
-    else:
-        logger.warning("[%s] Missing join keys — skipping ACMG merge.", label)
+        return True
+    logger.warning("[%s] Missing join keys — skipping ACMG merge.", label)
+    return False
 
 
 def run_intervar(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
@@ -201,12 +213,14 @@ def run_intervar(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
 
     out_prefix = cfg.vcf_dir / f"{sample}.intervar"
     table = _run_intervar_tool(sample, cfg.vcf_dir / f"{sample}_PASS.vcf", out_prefix, cfg)
-    if table is not None:
-        _merge_acmg(sample, table, cfg.vcf_dir / f"{sample}.annovar.hpo.txt")
-        # Only checkpoint on a genuine classification — if InterVar is
-        # missing/unprovisioned/timed out, leave this un-checkpointed so a
-        # later run (once InterVar/its DBs are actually available) retries
-        # instead of silently skipping forever. Found via audit.
+    merged = table is not None and _merge_acmg(sample, table, cfg.vcf_dir / f"{sample}.annovar.hpo.txt")
+    # Only checkpoint on a genuine classification — if InterVar is
+    # missing/unprovisioned/timed out, or ran but the merge itself couldn't
+    # locate/attach ACMG columns, leave this un-checkpointed so a later run
+    # retries instead of silently skipping forever. Found via audit: the
+    # merge outcome wasn't checked at all — only whether InterVar produced
+    # *a* file — so a merge failure was checkpointed as done anyway.
+    if merged:
         checkpoint.mark(sample, STEP)
     else:
         logger.info(
@@ -215,11 +229,20 @@ def run_intervar(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
         )
 
 
-def run_intervar_cohort(samples: list[str], cfg: "Config") -> None:
-    """Cohort counterpart of `run_intervar`, applied once to the cohort PASS VCF."""
+def run_intervar_cohort(samples: list[str], cfg: "Config") -> bool:
+    """
+    Cohort counterpart of `run_intervar`, applied once to the cohort PASS VCF.
+
+    Returns whether ACMG columns were actually merged — pipeline.py's
+    cohort loop only checkpoints on a non-False return, so InterVar being
+    missing/unprovisioned (or the merge failing) correctly leaves this
+    retryable instead of checkpointed done. Found via audit: this used to
+    always implicitly return None, which pipeline.py treats as success.
+    """
     out_prefix = cfg.cohort_dir / "cohort.intervar"
     table = _run_intervar_tool(
         "cohort", cfg.cohort_dir / "cohort_PASS.vcf", out_prefix, cfg
     )
-    if table is not None:
-        _merge_acmg("cohort", table, cfg.cohort_dir / "cohort.annovar.hpo.txt")
+    if table is None:
+        return False
+    return _merge_acmg("cohort", table, cfg.cohort_dir / "cohort.annovar.hpo.txt")

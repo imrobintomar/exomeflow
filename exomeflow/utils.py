@@ -31,9 +31,41 @@ class SystemResources:
     free_disk_gb: float
 
 
+def _cgroup_memory_limit_gb() -> float | None:
+    """
+    Return the container's cgroup memory cap in GB, or None if unset/not in
+    a container. `/proc/meminfo` reports the *host's* RAM even inside a
+    memory-limited Docker/Kubernetes container, so relying on it alone can
+    recommend a JVM heap far beyond what the container will actually be
+    allowed to use, leading to an OOM-killed run hours in. Found via audit.
+    """
+    for path in (Path("/sys/fs/cgroup/memory.max"),                    # cgroup v2
+                 Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")):  # cgroup v1
+        try:
+            raw = path.read_text().strip()
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        if raw == "max":
+            continue  # v2's explicit "no limit"
+        try:
+            limit_bytes = int(raw)
+        except ValueError:
+            continue
+        if limit_bytes > 2**62:
+            continue  # v1's "no limit" sentinel (close to INT64_MAX)
+        return limit_bytes / (1024 ** 3)
+    return None
+
+
 def detect_system_resources(disk_path: Path = Path(".")) -> SystemResources:
     """Read CPU/RAM/disk from the OS. Linux-only (matches this package's scope)."""
-    cpu_count = os.cpu_count() or 1
+    try:
+        # cgroup/affinity-aware — os.cpu_count() reports the host's full
+        # core count even inside a `docker run --cpus=N`-limited container.
+        # Found via audit.
+        cpu_count = len(os.sched_getaffinity(0)) or 1
+    except AttributeError:
+        cpu_count = os.cpu_count() or 1  # non-Linux fallback
 
     total_ram_gb = available_ram_gb = 0.0
     try:
@@ -47,6 +79,11 @@ def detect_system_resources(disk_path: Path = Path(".")) -> SystemResources:
         available_ram_gb = meminfo.get("MemAvailable", 0) / (1024 * 1024)
     except FileNotFoundError:
         pass  # non-Linux — leave at 0.0, callers fall back to conservative defaults
+
+    cgroup_limit_gb = _cgroup_memory_limit_gb()
+    if cgroup_limit_gb is not None:
+        total_ram_gb = min(total_ram_gb, cgroup_limit_gb) if total_ram_gb else cgroup_limit_gb
+        available_ram_gb = min(available_ram_gb, cgroup_limit_gb) if available_ram_gb else cgroup_limit_gb
 
     # disk_usage() requires an existing path — --output is documented as
     # "created if absent" and usually doesn't exist yet at this point, so
@@ -207,23 +244,41 @@ class Checkpoint:
     Lightweight file-based checkpoint system.
 
     A step is considered complete when the file
-    ``<checkpoint_dir>/<sample>.<step>.<genome_build>.done`` exists.
+    ``<checkpoint_dir>/<sample>.<step>.<variant>.done`` exists, where
+    *variant* encodes genome_build/mode/joint_genotyping.
 
-    *genome_build* is part of the filename (not just an internal detail)
-    because alignment/calling output genuinely differs by reference genome:
-    without it, switching `--genome-build` on an already-used `--output`
-    directory would see the old build's checkpoints as "already done" and
-    skip straight to calling variants against the new build's reference
-    using a BAM that's still aligned to the old one. Found via audit.
+    All three are part of the filename (not just an internal detail)
+    because they change what a step's output actually *is*:
+    - genome_build: switching `--genome-build` on an already-used `--output`
+      directory would otherwise see the old build's checkpoints as "already
+      done" and skip straight to calling variants against the new build's
+      reference using a BAM still aligned to the old one.
+    - joint_genotyping: HaplotypeCaller writes a different output file
+      (`.g.vcf.gz` vs `.vcf`) depending on this flag; toggling it on an
+      existing directory would otherwise see "haplotype" as already done
+      and never produce the GVCF the cohort phase needs.
+    - mode: germline and somatic filtering both write to the same
+      `_PASS.vcf` filename; toggling `--mode` on an existing directory
+      would otherwise leave annotation checkpointed against a PASS VCF that
+      was since silently overwritten by the other mode's calls.
+    Found via audit — genome_build was fixed first; mode/joint_genotyping
+    had the identical gap.
     """
 
-    def __init__(self, checkpoint_dir: Path, genome_build: str = "hg38") -> None:
+    def __init__(
+        self,
+        checkpoint_dir: Path,
+        genome_build: str = "hg38",
+        mode: str = "germline",
+        joint_genotyping: bool = False,
+    ) -> None:
         self._dir = checkpoint_dir
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._genome_build = genome_build
+        jg = "jg" if joint_genotyping else "std"
+        self._variant = f"{genome_build}.{mode}.{jg}"
 
     def _path(self, sample: str, step: str) -> Path:
-        return self._dir / f"{sample}.{step}.{self._genome_build}.done"
+        return self._dir / f"{sample}.{step}.{self._variant}.done"
 
     def mark(self, sample: str, step: str) -> None:
         """Create the checkpoint file for *sample* / *step*."""

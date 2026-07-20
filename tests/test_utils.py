@@ -79,6 +79,44 @@ def test_checkpoint_cohort_namespace(tmp_path: Path):
     assert cp.done("__cohort__", "multiqc")
 
 
+def test_checkpoint_isolates_by_genome_build(tmp_path: Path):
+    hg38 = Checkpoint(tmp_path / ".checkpoints", genome_build="hg38")
+    grch37 = Checkpoint(tmp_path / ".checkpoints", genome_build="GRCh37")
+    hg38.mark("s1", "haplotype")
+    assert hg38.done("s1", "haplotype")
+    assert not grch37.done("s1", "haplotype")
+
+
+def test_checkpoint_isolates_by_joint_genotyping(tmp_path: Path):
+    """
+    Regression test: found via audit — HaplotypeCaller writes a different
+    output file (.g.vcf.gz vs .vcf) depending on joint_genotyping, but the
+    checkpoint key used to ignore this dimension entirely. Toggling
+    --joint-genotyping on an existing --output dir would see "haplotype" as
+    already done and never produce the GVCF the cohort phase needs.
+    """
+    std = Checkpoint(tmp_path / ".checkpoints", joint_genotyping=False)
+    jg = Checkpoint(tmp_path / ".checkpoints", joint_genotyping=True)
+    std.mark("s1", "haplotype")
+    assert std.done("s1", "haplotype")
+    assert not jg.done("s1", "haplotype")
+
+
+def test_checkpoint_isolates_by_mode(tmp_path: Path):
+    """
+    Regression test: found via audit — germline and somatic filtering both
+    write to the same _PASS.vcf filename, but the checkpoint key used to
+    ignore mode entirely. Switching --mode on an existing --output dir
+    would leave the "annovar" checkpoint from the old mode's run stuck
+    "done", so annotation never reran against the new mode's PASS VCF.
+    """
+    germline = Checkpoint(tmp_path / ".checkpoints", mode="germline")
+    somatic = Checkpoint(tmp_path / ".checkpoints", mode="somatic")
+    germline.mark("s1", "annovar")
+    assert germline.done("s1", "annovar")
+    assert not somatic.done("s1", "annovar")
+
+
 @pytest.mark.parametrize(
     "text,expected",
     [

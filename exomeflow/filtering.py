@@ -24,7 +24,7 @@ from exomeflow.config import (
     SNP_FILTERS,
     SNP_GENOTYPE_FILTERS,
 )
-from exomeflow.utils import Checkpoint, count_variants, run_cmd
+from exomeflow.utils import Checkpoint, PipelineStepError, count_variants, run_cmd
 
 if TYPE_CHECKING:
     from exomeflow.config import Config
@@ -132,6 +132,16 @@ def hard_filter(
          "--exclude-non-variants"],
         env=env, step_name="SelectVariants (PASS)", sample=label,
     )
+
+    # A reported-successful exit doesn't guarantee real output (same class
+    # of bug already fixed for SortSam/ApplyBQSR/ANNOVAR elsewhere in this
+    # codebase) — verify before deleting the intermediates below, and
+    # before the caller checkpoints this step done. Found via audit.
+    if not (output_pass_vcf.exists() and output_pass_vcf.stat().st_size > 0):
+        raise PipelineStepError(
+            f"[{label}] SelectVariants (PASS) reported success but "
+            f"{output_pass_vcf} is missing or empty — not deleting intermediates."
+        )
 
     # ------------------------------------------------------------------ 6. Summary
     total = count_variants(input_vcf)

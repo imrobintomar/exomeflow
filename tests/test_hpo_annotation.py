@@ -116,3 +116,37 @@ def test_run_hpo_annotation_checkpoints_on_real_success(tmp_path: Path, monkeypa
     mod.run_hpo_annotation("s1", cfg, checkpoint)
 
     assert checkpoint.done("s1", "hpo")
+
+
+def test_enrich_splits_multi_gene_entries(tmp_path: Path, monkeypatch):
+    """
+    Regression test: found via audit — ANNOVAR's Gene.refGene can be a
+    composite string (';'-joined for multi-gene overlap, ','-joined with
+    "(distance)" suffixes for intergenic calls), which a plain merge on the
+    raw column never matches against hpo_map's single-symbol keys. Those
+    rows used to silently get no HPO terms with no signal anything was missed.
+    """
+    mapping = tmp_path / "genes_to_phenotype.txt"
+    mapping.write_text(
+        "ncbi_gene_id\tgene_symbol\thpo_id\thpo_name\n"
+        "1\tBRCA1\tHP:0003002\tBreast carcinoma\n"
+        "2\tTP53\tHP:0002664\tNeoplasm\n"
+    )
+    monkeypatch.setattr(mod, "HPO_MAPPING_FILE", mapping)
+
+    multianno = tmp_path / "s1.annovar.hg38_multianno.txt"
+    multianno.write_text(
+        "Chr\tStart\tGene.refGene\n"
+        "1\t100\tBRCA1;TP53\n"
+        "2\t200\tBRCA1(1200),TP53(300)\n"
+    )
+    output = tmp_path / "s1.annovar.hpo.txt"
+
+    assert mod.enrich("s1", multianno, output) is True
+
+    lines = output.read_text().splitlines()
+    header = lines[0].split("\t")
+    hpo_idx = header.index("HPO_ID")
+    for row in lines[1:]:
+        cols = row.split("\t")
+        assert "HP:0003002" in cols[hpo_idx] and "HP:0002664" in cols[hpo_idx]

@@ -65,4 +65,14 @@ def run_joint_genotyping(samples: list[str], cfg: "Config") -> None:
         env=env, step_name="GenotypeGVCFs", sample="cohort",
     )
 
+    # A reported-successful exit doesn't guarantee real output (same class
+    # of bug already fixed for SortSam/ApplyBQSR/ANNOVAR elsewhere in this
+    # codebase) — verify before the caller checkpoints this step done, since
+    # every downstream cohort step (filter/annovar/hpo/acmg) reads this
+    # exact file. Found via audit.
+    if not (cohort_vcf.exists() and cohort_vcf.stat().st_size > 0):
+        raise PipelineStepError(
+            f"[cohort] GenotypeGVCFs reported success but {cohort_vcf} is missing or empty."
+        )
+
     logger.log(25, "[cohort] Joint genotyping completed: %s", cohort_vcf)

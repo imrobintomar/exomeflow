@@ -79,11 +79,19 @@ def run_bwa_mem(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
         env=env,
     )
 
-    samtools_proc = subprocess.Popen(
-        samtools_cmd,
-        stdin=bwa_proc.stdout,
-        env=env,
-    )
+    try:
+        samtools_proc = subprocess.Popen(
+            samtools_cmd,
+            stdin=bwa_proc.stdout,
+            env=env,
+        )
+    except Exception:
+        # If samtools fails to even start (e.g. missing from PATH), bwa_proc
+        # is already spawned and would otherwise leak as an orphaned running
+        # process with nothing left to read its output. Found via audit.
+        bwa_proc.kill()
+        bwa_proc.wait()
+        raise
 
     # Allow bwa to receive SIGPIPE if samtools exits early
     if bwa_proc.stdout:

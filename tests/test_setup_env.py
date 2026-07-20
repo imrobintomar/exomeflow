@@ -573,21 +573,24 @@ def test_step_reference_files_verifies_disk_state_not_exit_code(tmp_path, monkey
     transferred completely and correctly (found live, fixed for somatic
     resources in 2.2.7 — this test confirms the same fix landed on the
     reference-file download loop, which had the identical pattern: trusting
-    _gsutil_cp's/_download_file's return value instead of the real file).
+    _gsutil_cp's return value instead of the real file). gsutil specifically
+    — unlike wget/curl (see test_step_reference_files_trusts_wget_exit_code_
+    below) — is exempt from the exit-code check for this exact reason.
     """
     refs_dir = tmp_path / "refs"
     # Force past the early "already present" checks regardless of what's on
     # disk, to isolate the download loop itself.
     monkeypatch.setattr(setup_env, "_scan_refs", lambda *a, **k: {})
-    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)  # force wget/https path
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: "gsutil")  # force gsutil path
 
-    def _fake_download(url, dest):
-        # Simulate a tool that writes real data but reports failure.
+    def _fake_gsutil_cp(gcs_path, dest):
+        # Simulate gsutil's known false-negative: writes real data but
+        # reports failure via its return value.
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"data")
         return False
 
-    monkeypatch.setattr(setup_env, "_download_file", _fake_download)
+    monkeypatch.setattr(setup_env, "_gsutil_cp", _fake_gsutil_cp)
 
     resolved, failures = _step_reference_files(refs_dir, None, "hg38", assume_yes=True)
 
@@ -595,6 +598,36 @@ def test_step_reference_files_verifies_disk_state_not_exit_code(tmp_path, monkey
     assert resolved == refs_dir
     for filename, _, _ in REFERENCE_FILES_BY_BUILD["hg38"]:
         assert (refs_dir / filename).stat().st_size > 0
+
+
+def test_step_reference_files_trusts_wget_exit_code(tmp_path, monkeypatch):
+    """
+    Regression test: found via audit — unlike gsutil, wget/curl's exit code
+    IS trustworthy, but the download loop used to blanket-ignore it anyway
+    (copy-pasted from the gsutil fix above). A killed/timed-out wget run can
+    leave a truncated-but-non-empty file on disk; without checking the exit
+    code too, that truncated file was misreported as a successful download
+    and left in place to silently pass the next run's completeness check.
+    """
+    refs_dir = tmp_path / "refs"
+    monkeypatch.setattr(setup_env, "_scan_refs", lambda *a, **k: {})
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)  # force wget/https path
+
+    def _fake_download(url, dest):
+        # Simulate a killed/timed-out wget: partial data written, real failure.
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"truncated")
+        return False
+
+    monkeypatch.setattr(setup_env, "_download_file", _fake_download)
+
+    resolved, failures = _step_reference_files(refs_dir, None, "hg38", assume_yes=True)
+
+    assert resolved is None
+    assert failures
+    # The truncated file must not be left behind to fool a later run.
+    for filename, _, _ in REFERENCE_FILES_BY_BUILD["hg38"]:
+        assert not (refs_dir / filename).exists()
 
 
 def test_step_reference_files_reports_failure_when_nothing_lands(tmp_path, monkeypatch):
@@ -690,3 +723,40 @@ def test_run_doctor_uses_annovar_buildver_convention_for_grch37(tmp_path, monkey
     run_doctor(genome_build="GRCh37")
 
     assert seen_buildver["value"] == "hg19"
+
+
+def test_step_system_tools_uses_install_not_create_after_first_package(tmp_path, monkeypatch):
+    """
+    Regression test: found via audit (and reproduced live against a real
+    micromamba binary) — micromamba `create -p <existing-prefix>` re-solves
+    for the new package only and silently drops whatever a prior call in
+    this same loop installed, even though every call exits 0. Repeatedly
+    calling `create` against the same MICROMAMBA_ENV prefix (one call per
+    _SYSTEM_TOOLS entry) meant only the *last* tool ever actually remained
+    installed. The fix: use `create` only to make the prefix (first call),
+    then `install` for every subsequent package once a real micromamba
+    environment (signalled by conda-meta/) exists there.
+    """
+    fake_mm = tmp_path / "micromamba"
+    fake_mm.touch()
+    env_dir = tmp_path / "env"
+
+    monkeypatch.setattr(setup_env.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup_env, "_step_bootstrap_micromamba", lambda: fake_mm)
+    monkeypatch.setattr(setup_env, "MICROMAMBA_ENV", env_dir)
+
+    calls = []
+
+    def _fake_run_silent(cmd, timeout_s=900):
+        calls.append(cmd)
+        if cmd[1] == "create":
+            (env_dir / "conda-meta").mkdir(parents=True, exist_ok=True)
+        return True
+
+    monkeypatch.setattr(setup_env, "_run_silent", _fake_run_silent)
+
+    failures = _step_system_tools()
+    assert failures == []
+    assert len(calls) == len(setup_env._SYSTEM_TOOLS)
+    assert calls[0][1] == "create"
+    assert all(cmd[1] == "install" for cmd in calls[1:])

@@ -81,3 +81,22 @@ def test_run_accepts_existing_file_override_past_argument_parsing(valid_input_di
     # is run_command's own logic (dependency checks etc.), not a rejected
     # CLI argument, so exit code 2 (Click's usage-error code) must not occur.
     assert result.exit_code != 2 or "does not exist" not in result.output
+
+
+def test_run_rejects_output_path_that_is_an_existing_file(valid_input_dir: Path, tmp_path: Path):
+    """
+    Regression test: found via audit — unlike --input-dir, --output can't
+    use Typer's exists=True (it's documented as "created if absent"), but a
+    value that DOES exist and isn't a directory used to pass straight
+    through and only fail deep inside Config.setup_directories()'s mkdir()
+    call — after the potentially hours-long first-run setup wizard had
+    already completed.
+    """
+    output_path = tmp_path / "not_a_directory"
+    output_path.write_text("oops, this is a file")
+
+    result = runner.invoke(app, [
+        "run", "--input-dir", str(valid_input_dir), "--output", str(output_path),
+    ])
+    assert result.exit_code == 1
+    assert "not a directory" in result.output

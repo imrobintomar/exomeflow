@@ -241,12 +241,35 @@ def run_command(
         console.print(f"  [red]✘[/red]  --mode must be 'germline' or 'somatic', got '{mode}'.")
         raise typer.Exit(code=1)
     _validate_genome_build(genome_build)
+    # Unlike --input-dir, --output can't use exists=True (it's documented as
+    # "created if absent", and usually doesn't exist yet) — but a value that
+    # DOES exist and isn't a directory (e.g. an accidental copy-paste of a
+    # file path) previously wasn't caught until Config.setup_directories()'s
+    # mkdir() call deep inside run_pipeline(), i.e. after the setup wizard's
+    # potentially hours-long first-run downloads had already completed.
+    # Found via audit — same "fail fast before the wizard" rationale already
+    # applied to --intervals.
+    if output.exists() and not output.is_dir():
+        console.print(f"  [red]✘[/red]  --output {output} exists and is not a directory.")
+        raise typer.Exit(code=1)
     if (joint_genotyping or call_cnv) and not intervals_present(intervals):
         console.print(
             "  [red]✘[/red]  --joint-genotyping and --cnv both require --intervals "
             "(a bounded region is needed before either can run)."
         )
         raise typer.Exit(code=1)
+    if joint_genotyping and mode == "somatic":
+        # pipeline.py's _cohort_active() deliberately ignores --joint-
+        # genotyping outside germline mode (joint genotyping is a germline-
+        # only cohort feature) — without this warning, the flag was
+        # silently accepted and had zero effect, with no diagnostic
+        # anywhere telling the user their explicit choice was a no-op.
+        # Found via audit.
+        console.print(
+            "  [yellow]⚠[/yellow]  --joint-genotyping has no effect with --mode somatic "
+            "(joint genotyping is germline-only) — running ordinary per-sample "
+            "tumor-only calling instead."
+        )
     if (annovar_protocols is None) != (annovar_operations is None):
         console.print(
             "  [red]✘[/red]  --annovar-protocols and --annovar-operations must be "
