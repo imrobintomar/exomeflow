@@ -5,11 +5,13 @@ import pytest
 
 from exomeflow.utils import (
     Checkpoint,
+    PipelineStepError,
     _parse_version,
     _version_ok,
     count_variants,
     detect_samples,
     resolve_fastq_pair,
+    run_cmd,
 )
 
 
@@ -157,3 +159,22 @@ def test_count_variants_bgzipped(tmp_path: Path):
 
 def test_count_variants_missing_file(tmp_path: Path):
     assert count_variants(tmp_path / "does_not_exist.vcf") == 0
+
+
+def test_run_cmd_raises_on_nonzero_exit():
+    """
+    Regression test: found via audit — every existing test that touches
+    run_cmd() monkeypatches it away entirely, so its actual exit-code check
+    (the thing every step function depends on to detect a failed tool) was
+    never exercised. A regression here (e.g. an inverted condition) would
+    have passed the whole suite undetected.
+    """
+    import sys
+    with pytest.raises(PipelineStepError):
+        run_cmd([sys.executable, "-c", "import sys; sys.exit(1)"], step_name="test")
+
+
+def test_run_cmd_returns_completed_process_on_success():
+    import sys
+    result = run_cmd([sys.executable, "-c", "pass"], step_name="test")
+    assert result.returncode == 0

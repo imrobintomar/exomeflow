@@ -147,7 +147,7 @@ def process_sample(sample: str, cfg: "Config", timestamp: str) -> None:
                 sample_logger.error("Failed at step '%s': %s", step.name, exc)
                 raise
 
-        sample_logger.log(25, "Sample %s completed successfully.", sample)
+        sample_logger.success("Sample %s completed successfully.", sample)
         sample_logger.info("=" * 10 + " OUTPUT FILES: %s " + "=" * 10, sample)
         sample_logger.info("  BAM (IGV):     %s", cfg.map_dir / f"{sample}_recalibrated.bam")
         if not _cohort_active(cfg):
@@ -273,7 +273,7 @@ def run_pipeline(cfg: "Config") -> int:
                         logger.error("Sample %s failed: %s", sample, exc)
                         failed.append(sample)
                     else:
-                        logger.log(25, "Sample %s completed.", sample)
+                        logger.success("Sample %s completed.", sample)
                         processed.append(sample)
 
     # ----------------------------------------------------------- cohort phase
@@ -351,7 +351,7 @@ def run_pipeline(cfg: "Config") -> int:
         for s in failed:
             logger.error("  FAILED: %s", s)
     else:
-        logger.log(25, "Pipeline completed successfully!")
+        logger.success("Pipeline completed successfully!")
         logger.info(
             "Output: %s",
             cfg.cohort_dir if _cohort_active(cfg) else cfg.vcf_dir,

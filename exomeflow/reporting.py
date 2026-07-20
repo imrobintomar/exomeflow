@@ -71,5 +71,5 @@ def run_multiqc(samples: list[str], cfg: "Config") -> bool:
         )
         return False
 
-    logger.log(25, "[cohort] MultiQC report: %s", report)
+    logger.success("[cohort] MultiQC report: %s", report)
     return True

@@ -74,4 +74,4 @@ def run_haplotype_caller(
     run_cmd(cmd, env=cfg.env(), step_name="HaplotypeCaller", sample=sample)
 
     checkpoint.mark(sample, STEP)
-    logger.log(25, "[%s] HaplotypeCaller completed.", sample)
+    logger.success("[%s] HaplotypeCaller completed.", sample)

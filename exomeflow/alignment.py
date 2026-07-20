@@ -107,4 +107,4 @@ def run_bwa_mem(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
         )
 
     checkpoint.mark(sample, STEP)
-    logger.log(25, "[%s] BWA MEM and conversion to BAM completed.", sample)
+    logger.success("[%s] BWA MEM and conversion to BAM completed.", sample)

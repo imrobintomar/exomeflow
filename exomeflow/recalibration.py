@@ -118,4 +118,4 @@ def run_base_recalibration(
     )
 
     checkpoint.mark(sample, STEP)
-    logger.log(25, "[%s] BQSR completed.", sample)
+    logger.success("[%s] BQSR completed.", sample)

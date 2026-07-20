@@ -68,7 +68,7 @@ def sort_bam(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
     input_bam.unlink(missing_ok=True)
 
     checkpoint.mark(sample, "sort")
-    logger.log(25, "[%s] BAM sorting completed.", sample)
+    logger.success("[%s] BAM sorting completed.", sample)
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ def generate_flagstat(sample: str, cfg: "Config", checkpoint: Checkpoint) -> Non
     output.write_text(result.stdout, encoding="utf-8")
 
     checkpoint.mark(sample, "flagstat")
-    logger.log(25, "[%s] Flagstat completed.", sample)
+    logger.success("[%s] Flagstat completed.", sample)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ def mark_duplicates(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
     )
 
     checkpoint.mark(sample, "markdup")
-    logger.log(25, "[%s] MarkDuplicates completed.", sample)
+    logger.success("[%s] MarkDuplicates completed.", sample)
 
 
 # ---------------------------------------------------------------------------
@@ -175,4 +175,4 @@ def build_bam_index(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
     )
 
     checkpoint.mark(sample, "index")
-    logger.log(25, "[%s] BAM index created.", sample)
+    logger.success("[%s] BAM index created.", sample)

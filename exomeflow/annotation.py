@@ -106,7 +106,7 @@ def run_annovar_annotation(
     )
 
     checkpoint.mark(sample, STEP)
-    logger.log(25, "[%s] ANNOVAR annotation completed.", sample)
+    logger.success("[%s] ANNOVAR annotation completed.", sample)
 
 
 def run_cohort_annotation(samples: list[str], cfg: "Config") -> None:
@@ -123,4 +123,4 @@ def run_cohort_annotation(samples: list[str], cfg: "Config") -> None:
         output_prefix=cfg.cohort_dir / "cohort.annovar",
         cfg=cfg,
     )
-    logger.log(25, "[cohort] ANNOVAR annotation completed.")
+    logger.success("[cohort] ANNOVAR annotation completed.")

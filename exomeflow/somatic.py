@@ -71,7 +71,7 @@ def run_mutect2(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
     run_cmd(cmd, env=cfg.env(), step_name="Mutect2", sample=sample)
 
     checkpoint.mark(sample, MUTECT2_STEP)
-    logger.log(25, "[%s] Mutect2 completed.", sample)
+    logger.success("[%s] Mutect2 completed.", sample)
 
 
 def run_somatic_filtration(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
@@ -144,4 +144,4 @@ def run_somatic_filtration(sample: str, cfg: "Config", checkpoint: Checkpoint) -
     )
 
     checkpoint.mark(sample, FILTER_STEP)
-    logger.log(25, "[%s] Somatic filtering completed.", sample)
+    logger.success("[%s] Somatic filtering completed.", sample)

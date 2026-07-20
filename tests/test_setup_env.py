@@ -760,3 +760,38 @@ def test_step_system_tools_uses_install_not_create_after_first_package(tmp_path,
     assert len(calls) == len(setup_env._SYSTEM_TOOLS)
     assert calls[0][1] == "create"
     assert all(cmd[1] == "install" for cmd in calls[1:])
+
+
+def test_save_config_serializes_concurrent_writers(tmp_path, monkeypatch):
+    """
+    Regression test: found via audit — save_config()'s read-modify-write had
+    no locking, so two concurrent writers could each load the same starting
+    state and independently merge in different keys; whichever finished last
+    would silently discard the other's key. save_config() now holds an
+    exclusive flock across the whole read-modify-write-rename cycle, so
+    concurrent callers are serialized instead of racing.
+    """
+    import threading
+    import time
+
+    monkeypatch.setattr(setup_env, "CONFIG_PATH", tmp_path / "config.json")
+
+    real_load_config = setup_env.load_config
+
+    def _slow_load_config():
+        result = real_load_config()
+        time.sleep(0.05)  # widen the read-modify-write race window
+        return result
+
+    monkeypatch.setattr(setup_env, "load_config", _slow_load_config)
+
+    t1 = threading.Thread(target=lambda: setup_env.save_config({"key_a": "1"}))
+    t2 = threading.Thread(target=lambda: setup_env.save_config({"key_b": "2"}))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    final = json.loads((tmp_path / "config.json").read_text())
+    assert final.get("key_a") == "1"
+    assert final.get("key_b") == "2"

@@ -244,7 +244,7 @@ pip install exomeflow
 ### Option 2 Docker
 
 ```bash
-docker pull itsrobintomar/exomeflow:2.2.9
+docker pull itsrobintomar/exomeflow:2.2.10
 
 docker run --rm -it \
   -v /path/to/fastq:/data/fastq \
@@ -252,7 +252,7 @@ docker run --rm -it \
   -v /path/to/vcf:/vcf \
   -v /path/to/annovar:/annovar \
   -v /path/to/results:/data/results \
-  itsrobintomar/exomeflow:2.2.9 run \
+  itsrobintomar/exomeflow:2.2.10 run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -280,10 +280,10 @@ docker run --rm -it \
 
 ```bash
 # Pull directly from Docker Hub
-singularity pull exomeflow-2.2.9.sif docker://itsrobintomar/exomeflow:2.2.9
+singularity pull exomeflow-2.2.10.sif docker://itsrobintomar/exomeflow:2.2.10
 
 # Or build from the definition file
-singularity build exomeflow-2.2.9.sif exomeflow.def
+singularity build exomeflow-2.2.10.sif exomeflow.def
 
 singularity exec \
   --bind /path/to/fastq:/data/fastq \
@@ -291,7 +291,7 @@ singularity exec \
   --bind /path/to/vcf:/vcf \
   --bind /path/to/annovar:/annovar \
   --bind /path/to/results:/data/results \
-  exomeflow-2.2.9.sif exomeflow run \
+  exomeflow-2.2.10.sif exomeflow run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \
@@ -320,7 +320,7 @@ singularity exec \
   --bind $VCF_DIR:/vcf \
   --bind $ANNOVAR_DIR:/annovar \
   --bind $RESULTS_DIR:/data/results \
-  exomeflow-2.2.9.sif exomeflow run \
+  exomeflow-2.2.10.sif exomeflow run \
     --input-dir    /data/fastq \
     --output       /data/results \
     --reference    /refs/Homo_sapiens_assembly38.fasta \

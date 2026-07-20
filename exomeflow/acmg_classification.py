@@ -195,7 +195,7 @@ def _merge_acmg(label: str, intervar_table: Path, enriched_txt: Path) -> bool:
             on=key_cols, how="left",
         )
         table.to_csv(enriched_txt, sep="\t", index=False)
-        logger.log(25, "[%s] ACMG classification merged into %s", label, enriched_txt)
+        logger.success("[%s] ACMG classification merged into %s", label, enriched_txt)
         return True
     logger.warning("[%s] Missing join keys — skipping ACMG merge.", label)
     return False

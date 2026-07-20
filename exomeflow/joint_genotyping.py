@@ -75,4 +75,4 @@ def run_joint_genotyping(samples: list[str], cfg: "Config") -> None:
             f"[cohort] GenotypeGVCFs reported success but {cohort_vcf} is missing or empty."
         )
 
-    logger.log(25, "[cohort] Joint genotyping completed: %s", cohort_vcf)
+    logger.success("[cohort] Joint genotyping completed: %s", cohort_vcf)

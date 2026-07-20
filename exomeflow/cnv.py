@@ -108,4 +108,4 @@ def run_cnv_calling(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
         )
 
     checkpoint.mark(sample, STEP)
-    logger.log(25, "[%s] CNV calling completed: %s", sample, denoised)
+    logger.success("[%s] CNV calling completed: %s", sample, denoised)

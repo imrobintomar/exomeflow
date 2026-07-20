@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.2.10
+
+Follow-up to the 2.2.9 audit — fixes the three items that were deliberately
+deferred there as "cosmetic/low-value", now addressed properly.
+
+### Fixed
+
+- **`logger.success()` was dead code** — all ~28 "step completed" log calls
+  hardcoded the magic level number `logger.log(25, ...)` instead of the
+  purpose-built method, so a future change to what level 25 means would
+  silently desync from every call site. All call sites now use
+  `logger.success(...)`. Fixing this surfaced a real bug in the process:
+  `logger.success` is only registered as a side effect of importing
+  `exomeflow.logger`, so a module that logs a success message without that
+  import having happened yet (directly or transitively) raised
+  `AttributeError` — e.g. `import exomeflow.cnv` alone used to crash the
+  first time it logged completion. `exomeflow/__init__.py` now imports
+  `exomeflow.logger` unconditionally, so `logger.success()` is guaranteed
+  available on any `import exomeflow.<anything>`.
+- **`run_cmd()`'s real exit-code check was never exercised by any test** —
+  every test that touches it monkeypatches it away entirely. A regression
+  in the exit-code check (e.g. an inverted condition) would have passed
+  the whole suite undetected. Added direct tests against the real
+  subprocess-based implementation.
+- **`~/.exomeflow/config.json`'s read-modify-write had no locking** — two
+  concurrent `exomeflow` invocations (e.g. two terminals against two
+  different `--output` dirs, sharing the same global config) could each
+  load the same starting state and independently merge in different keys;
+  whichever finished last silently discarded the other's. `save_config()`
+  now holds an exclusive `flock` across the whole read-modify-write-rename
+  cycle, serializing concurrent writers instead of racing them.
+
 ## 2.2.9
 
 Second deep audit release — the 2.2.8 audit fixed 12 issues but a follow-up

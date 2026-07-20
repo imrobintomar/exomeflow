@@ -67,4 +67,4 @@ def run_fastp(sample: str, cfg: "Config", checkpoint: Checkpoint) -> None:
     run_cmd(cmd, env=cfg.env(), step_name="fastp", sample=sample)
 
     checkpoint.mark(sample, STEP)
-    logger.log(25, "[%s] fastp completed.", sample)   # 25 = SUCCESS
+    logger.success("[%s] fastp completed.", sample)   # 25 = SUCCESS

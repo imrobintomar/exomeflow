@@ -189,7 +189,7 @@ def run_variant_filtration(
     )
 
     checkpoint.mark(sample, STEP)
-    logger.log(25, "[%s] Variant filtering completed.", sample)
+    logger.success("[%s] Variant filtering completed.", sample)
 
 
 def run_cohort_filtration(samples: list[str], cfg: "Config") -> None:
@@ -208,4 +208,4 @@ def run_cohort_filtration(samples: list[str], cfg: "Config") -> None:
         reference=cfg.reference,
         env=cfg.env(),
     )
-    logger.log(25, "[cohort] Variant filtering completed.")
+    logger.success("[cohort] Variant filtering completed.")

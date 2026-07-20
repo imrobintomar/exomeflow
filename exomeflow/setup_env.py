@@ -14,6 +14,7 @@ What happens:
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -252,20 +253,37 @@ def load_config() -> dict:
 
 def save_config(data: dict) -> None:
     """Merge data into the saved ExomeFlow config."""
-    existing = load_config()
-    existing.update({k: str(v) for k, v in data.items() if v is not None})
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # Write to a sibling temp file then rename over the target — os.replace
-    # is atomic on POSIX, so a concurrent reader/writer or a kill mid-write
-    # never observes a truncated/partially-written config.json (write_text()
-    # truncates in place first, so a process killed between the truncate and
-    # the write used to leave a 0-byte or partial file that load_config()'s
-    # broad `except Exception: return {}` would silently treat as "no config
-    # at all", forcing a full re-resolution/re-download cycle with no
-    # diagnostic explaining why). Found via audit.
-    tmp_path = CONFIG_PATH.with_suffix(f"{CONFIG_PATH.suffix}.tmp")
-    tmp_path.write_text(json.dumps(existing, indent=2))
-    os.replace(tmp_path, CONFIG_PATH)
+    lock_path = CONFIG_PATH.with_suffix(f"{CONFIG_PATH.suffix}.lock")
+    with open(lock_path, "w", encoding="utf-8") as lock_fh:
+        # Exclusive advisory lock serializes the whole read-modify-write
+        # cycle across processes. Without it, two `exomeflow` invocations
+        # racing to save_config() (e.g. two terminals against two different
+        # --output dirs, sharing the same global config) could each
+        # load_config() the same starting state, merge in different keys,
+        # and whichever os.replace() lands last silently discards the
+        # other's resolved keys (e.g. a freshly-resolved annovar_db path
+        # from one process lost to the other's write). Blocks rather than
+        # failing — both invocations still succeed, just serialized. Found
+        # via audit.
+        fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        try:
+            existing = load_config()
+            existing.update({k: str(v) for k, v in data.items() if v is not None})
+            # Write to a sibling temp file then rename over the target —
+            # os.replace is atomic on POSIX, so a concurrent reader or a
+            # kill mid-write never observes a truncated/partially-written
+            # config.json (write_text() truncates in place first, so a
+            # process killed between the truncate and the write used to
+            # leave a 0-byte or partial file that load_config()'s broad
+            # `except Exception: return {}` would silently treat as "no
+            # config at all", forcing a full re-resolution/re-download
+            # cycle with no diagnostic explaining why). Found via audit.
+            tmp_path = CONFIG_PATH.with_suffix(f"{CONFIG_PATH.suffix}.tmp")
+            tmp_path.write_text(json.dumps(existing, indent=2))
+            os.replace(tmp_path, CONFIG_PATH)
+        finally:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +359,7 @@ def _step_gatk_download() -> Path | None:
             "run. Install a JDK (e.g. `conda install -c conda-forge openjdk=17`)."
         )
 
-    logger.log(25, "GATK installed: %s", gatk_bin)
+    logger.success("GATK installed: %s", gatk_bin)
     return gatk_bin
 
 
@@ -897,7 +915,7 @@ def _step_somatic_resources(
             and dest_idx.exists() and dest_idx.stat().st_size > 0
         )
         if ok:
-            logger.log(25, "%s ready.", description)
+            logger.success("%s ready.", description)
             resolved[key] = dest
         else:
             logger.warning("%s download failed - Mutect2 will run without it.", description)
@@ -1159,7 +1177,7 @@ def _step_intervar(annovar_bin: Path | None) -> Path | None:
         return None
 
     _ensure_mim2gene(INTERVAR_DIR)
-    logger.log(25, "InterVar installed: %s", INTERVAR_DIR)
+    logger.success("InterVar installed: %s", INTERVAR_DIR)
     return INTERVAR_DIR
 
 

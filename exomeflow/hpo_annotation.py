@@ -137,7 +137,7 @@ def enrich(label: str, multianno_txt: Path, output_txt: Path) -> bool:
         )
         return False
 
-    logger.log(25, "[%s] HPO-enriched table: %s", label, output_txt)
+    logger.success("[%s] HPO-enriched table: %s", label, output_txt)
     return True
 
 
