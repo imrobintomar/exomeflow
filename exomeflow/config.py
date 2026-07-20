@@ -141,6 +141,7 @@ class Config:
     call_cnv: bool = False
     germline_resource: Path | None = None  # Mutect2 --germline-resource (gnomAD AF-only)
     panel_of_normals: Path | None = None  # Mutect2 --panel-of-normals (pre-built PoN VCF)
+    common_biallelic_sites: Path | None = None  # GetPileupSummaries site list (small subset, not germline_resource)
 
     # ----------------------------------------------------------- performance
     threads: int = 24

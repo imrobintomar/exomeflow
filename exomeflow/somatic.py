@@ -98,7 +98,18 @@ def run_somatic_filtration(sample: str, cfg: "Config", checkpoint: Checkpoint) -
         "-O", str(filtered),
     ]
 
-    if cfg.germline_resource:
+    # GATK's own tumor-only tutorial uses a small common-biallelic-sites
+    # subset — not the full germline-resource VCF — as GetPileupSummaries's
+    # site list. Found live: passing the full multi-GB, genome-wide
+    # af-only-gnomad file here made GATK treat ~326 million individual
+    # sites as its scan region, which exhausted a 30GB JVM heap building
+    # the BAM-index BitSet for that many tiny intervals — independent of
+    # whether --intervals was supplied. Falls back to germline_resource
+    # only if the small resource wasn't resolved (e.g. an older saved
+    # config from before this fix, or its download failed), so this never
+    # hard-fails a previously-working somatic run.
+    pileup_sites = cfg.common_biallelic_sites or cfg.germline_resource
+    if pileup_sites:
         pileups = cfg.vcf_dir / f"{sample}_pileups.table"
         contamination = cfg.vcf_dir / f"{sample}_contamination.table"
 
@@ -106,19 +117,17 @@ def run_somatic_filtration(sample: str, cfg: "Config", checkpoint: Checkpoint) -
         pileup_cmd = [
             "gatk", "GetPileupSummaries",
             "-I", str(bam),
-            "-V", str(cfg.germline_resource),
+            "-V", str(pileup_sites),
             "-O", str(pileups),
         ]
-        # -L defaults to the full germline-resource VCF as the scan region,
-        # which for the shipped gnomAD AF-only resource means a genome-wide
-        # scan (~3.2GB hg38 / ~14GB GRCh37) even for a targeted exome run —
-        # a severe, easily-avoidable slowdown. Unlike Mutect2 itself (which
-        # already restricts to cfg.intervals below), this never applied
-        # --intervals at all. Found via audit.
+        # -L defaults to the same site-list file as the scan region, which
+        # for the (much smaller) common-biallelic-sites resource is no
+        # longer a heap-exhausting scan — but still narrower and faster
+        # when --intervals is available. Found via audit.
         if cfg.has_intervals:
             pileup_cmd += ["-L", str(cfg.intervals), "--interval-padding", str(cfg.interval_padding)]
         else:
-            pileup_cmd += ["-L", str(cfg.germline_resource)]
+            pileup_cmd += ["-L", str(pileup_sites)]
         run_cmd(pileup_cmd, env=env, step_name="GetPileupSummaries", sample=sample)
 
         logger.info("[%s] Running CalculateContamination ...", sample)

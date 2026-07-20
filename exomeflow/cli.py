@@ -201,6 +201,12 @@ def run_command(
              "instead. Filters recurrent sequencing artifacts a population AF "
              "resource alone won't catch.",
         exists=True, file_okay=True, dir_okay=False, readable=True),
+    common_biallelic_sites: Optional[Path] = typer.Option(None, "--common-biallelic-sites",
+        help="Small common-biallelic-sites VCF for GetPileupSummaries's contamination "
+             "check (--mode somatic). Auto-downloaded (GATK's public resource) if "
+             "omitted. Deliberately NOT --germline-resource: that file is multi-GB "
+             "and genome-wide, and using it here can exhaust the JVM heap.",
+        exists=True, file_okay=True, dir_okay=False, readable=True),
     assume_yes: bool = typer.Option(False, "--yes", "-y",
         help="Non-interactive: auto-confirm every setup prompt (downloads, etc.) "
              "instead of asking. Needed for unattended/background/CI runs."),
@@ -258,6 +264,20 @@ def run_command(
             "(a bounded region is needed before either can run)."
         )
         raise typer.Exit(code=1)
+    if not intervals_present(intervals):
+        # Found live: a WES sample run without --intervals silently falls
+        # back to whole-genome scope everywhere, including GetPileupSummaries
+        # in --mode somatic — which can exhaust the JVM heap trying to
+        # index-query against the full germline-resource site list
+        # genome-wide, not just run slower. Whole-genome mode is legitimate
+        # for real WGS data, so this is a warning, not a hard error.
+        console.print(
+            "  [yellow]⚠[/yellow]  No --intervals supplied — running in whole-genome "
+            "mode. If this is exome/targeted data (not true WGS), pass "
+            "--intervals <capture.bed> for your capture kit: it scopes calling to "
+            "your target regions (faster, far less memory) and is required for "
+            "accurate results outside of true whole-genome sequencing."
+        )
     if joint_genotyping and mode == "somatic":
         # pipeline.py's _cohort_active() deliberately ignores --joint-
         # genotyping outside germline mode (joint genotyping is a germline-
@@ -376,6 +396,7 @@ def run_command(
         call_cnv=call_cnv,
         germline_resource=_r_optional(germline_resource, "germline_resource"),
         panel_of_normals=_r_optional(panel_of_normals, "panel_of_normals"),
+        common_biallelic_sites=_r_optional(common_biallelic_sites, "common_biallelic_sites"),
         **cfg_overrides,
     )
 

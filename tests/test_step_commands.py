@@ -367,6 +367,44 @@ def test_mutect2_uses_germline_resource_when_supplied(cfg: Config, checkpoint: C
     assert any(c[:2] == ["gatk", "CalculateContamination"] for c in calls)
 
 
+def test_pileup_prefers_common_biallelic_sites_over_germline_resource(
+    cfg: Config, checkpoint: Checkpoint, monkeypatch
+):
+    """
+    Regression test: found live — GetPileupSummaries used to always use the
+    full multi-GB, genome-wide germline_resource VCF as its site list.
+    GATK's own tumor-only tutorial uses a small common-biallelic-sites
+    subset for this specific step instead; using the full resource made
+    GATK treat ~326 million sites as its scan region, exhausting a 30GB JVM
+    heap. When common_biallelic_sites is resolved, it must be preferred.
+    """
+    import exomeflow.somatic as mod
+    calls: list = []
+    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+    cfg.germline_resource = Path("/refs/af-only-gnomad.vcf.gz")
+    cfg.common_biallelic_sites = Path("/refs/small_exac_common_3.hg38.vcf.gz")
+
+    mod.run_somatic_filtration("s1", cfg, checkpoint)
+    pileup_cmd = next(c for c in calls if c[:2] == ["gatk", "GetPileupSummaries"])
+    assert pileup_cmd[pileup_cmd.index("-V") + 1] == str(cfg.common_biallelic_sites)
+    assert str(cfg.germline_resource) not in pileup_cmd
+
+
+def test_pileup_falls_back_to_germline_resource_when_no_small_resource(
+    cfg: Config, checkpoint: Checkpoint, monkeypatch
+):
+    """common_biallelic_sites is None (e.g. older saved config) must not skip the step."""
+    import exomeflow.somatic as mod
+    calls: list = []
+    monkeypatch.setattr(mod, "run_cmd", _recorder(calls))
+    cfg.germline_resource = Path("/refs/af-only-gnomad.vcf.gz")
+    cfg.common_biallelic_sites = None
+
+    mod.run_somatic_filtration("s1", cfg, checkpoint)
+    pileup_cmd = next(c for c in calls if c[:2] == ["gatk", "GetPileupSummaries"])
+    assert pileup_cmd[pileup_cmd.index("-V") + 1] == str(cfg.germline_resource)
+
+
 def test_somatic_pileup_uses_intervals_when_supplied(cfg: Config, checkpoint: Checkpoint, monkeypatch, tmp_path: Path):
     """
     Regression test: found via audit — GetPileupSummaries used to always

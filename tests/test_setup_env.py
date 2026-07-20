@@ -454,7 +454,7 @@ def test_step_somatic_resources_skips_already_present_files(tmp_path, monkeypatc
     monkeypatch.setattr(setup_env, "_gsutil_cp", _fail_if_called)
 
     resolved = _step_somatic_resources(refs_dir, "hg38", assume_yes=True)
-    assert set(resolved) == {"germline_resource", "panel_of_normals"}
+    assert set(resolved) == {"germline_resource", "panel_of_normals", "common_biallelic_sites"}
     assert resolved["panel_of_normals"] == refs_dir / "1000g_pon.hg38.vcf.gz"
 
 

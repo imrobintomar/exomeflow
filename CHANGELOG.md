@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.2.11
+
+Found live: `--mode somatic` OOM-killed (exit 137, `OutOfMemoryError: Java
+heap space`) inside `GetPileupSummaries` on a real exome run, even at a
+30GB heap.
+
+### Fixed
+
+- **`GetPileupSummaries` used the full germline-resource VCF as its
+  contamination-check site list instead of GATK's own documented small
+  resource for this step.** The shipped `af-only-gnomad.hg38.vcf.gz`
+  contains ~326 million sites; handing that to `-V`/`-L` makes GATK treat
+  the whole thing as its scan region, and htsjdk's BAM-index query code
+  allocates a `BitSet` sized for that many tiny intervals — enough to
+  exhaust a 30GB heap on its own, independent of whether `--intervals` was
+  supplied. `--mode somatic` now auto-downloads GATK's small
+  common-biallelic-sites resource (~5MB, matching their official
+  tumor-only tutorial) and uses that instead; `--common-biallelic-sites`
+  lets you supply your own. Falls back to the old (working, just slower)
+  behavior if the small resource isn't available, so this never turns a
+  working run into a broken one.
+- **Running any mode without `--intervals` gave no warning that it was
+  falling back to whole-genome scope.** Whole-genome mode is legitimate for
+  real WGS data, so this isn't an error — but for WES/targeted data (the
+  common case) it silently means much slower runs and, as this release's
+  crash shows, real memory-exhaustion risk in specific GATK steps. `run`
+  now prints a warning up front when `--intervals` is omitted.
+
 ## 2.2.10
 
 Follow-up to the 2.2.9 audit — fixes the three items that were deliberately

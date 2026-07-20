@@ -128,6 +128,20 @@ SOMATIC_RESOURCES_BY_BUILD: dict[str, dict[str, tuple[str, str, str, int]]] = {
             "1000g_pon.hg38.vcf.gz", "1000g_pon.hg38.vcf.gz.tbi",
             "1000 Genomes Panel of Normals (Mutect2 --panel-of-normals)", 17,
         ),
+        # GATK's own tumor-only tutorial uses this small subset — not the
+        # full germline_resource above — as GetPileupSummaries's site list.
+        # Found live: using the full multi-GB, genome-wide af-only-gnomad
+        # file there (this codebase's behavior before this fix) makes GATK
+        # treat ~326 million individual sites as -L, which can blow a 30GB
+        # heap building the BAM-index BitSet for that many tiny intervals,
+        # independent of whether --intervals is supplied. Filename/path not
+        # hands-on network-verified in this environment (no outbound access
+        # here) — if it 404s, _step_somatic_resources logs a failure and
+        # run_somatic_filtration falls back to germline_resource as before.
+        "common_biallelic_sites": (
+            "small_exac_common_3.hg38.vcf.gz", "small_exac_common_3.hg38.vcf.gz.tbi",
+            "Common biallelic sites (GetPileupSummaries contamination check)", 5,
+        ),
     },
     "GRCh37": {
         "germline_resource": (
@@ -137,6 +151,10 @@ SOMATIC_RESOURCES_BY_BUILD: dict[str, dict[str, tuple[str, str, str, int]]] = {
         "panel_of_normals": (
             "Mutect2-WGS-panel-b37.vcf", "Mutect2-WGS-panel-b37.vcf.idx",
             "WGS Panel of Normals (Mutect2 --panel-of-normals)", 730,
+        ),
+        "common_biallelic_sites": (
+            "small_exac_common_3.vcf", "small_exac_common_3.vcf.idx",
+            "Common biallelic sites (GetPileupSummaries contamination check)", 5,
         ),
     },
 }
