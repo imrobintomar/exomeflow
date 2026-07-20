@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.2.13
+
+Found live: after 2.2.12 fixed InterVar's slow database re-download,
+InterVar ran for 85 minutes and exited 0 with no output file at all —
+and the pipeline had no way to say why.
+
+### Fixed
+
+- **`run_intervar()` swallowed InterVar's stdout/stderr whenever it exited
+  0 but produced no output file.** InterVar's own internal `table_annovar.pl`
+  call can fail without InterVar propagating that as a non-zero process
+  exit — Intervar.py just prints an error and moves on. The "expected
+  output not found" branch only logged a generic warning with none of
+  InterVar's own diagnostic output, so this exact failure mode was
+  completely opaque. Now logs the tail of both stdout and stderr in that
+  case, so the next run's log explains what InterVar itself reported.
+
 ## 2.2.12
 
 Found live, same session as 2.2.11: ACMG classification tried to

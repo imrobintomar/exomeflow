@@ -200,9 +200,18 @@ def _run_intervar_tool(label: str, vcf: Path, out_prefix: Path, cfg: "Config") -
 
     output = Path(f"{out_prefix}.{cfg.annovar_buildver}_multianno.txt.intervar")
     if not output.exists():
+        # Found live: InterVar can exit 0 with no output at all if its
+        # *internal* table_annovar.pl call fails (e.g. can't produce
+        # `{out_prefix}.{buildver}_multianno.txt` for InterVar's own glob
+        # to find) — Intervar.py doesn't propagate that as a non-zero
+        # process exit. Previously this branch discarded stdout/stderr
+        # entirely, so a returncode-0-but-empty-handed run was completely
+        # silent about the real cause. Now surfaces the tail of both so the
+        # next run's log actually explains what happened.
         logger.warning(
-            "[%s] Expected InterVar output not found at %s — skipping merge.",
-            label, output,
+            "[%s] Expected InterVar output not found at %s — skipping merge. "
+            "InterVar's own output (last 1500 chars of stdout+stderr):\n%s",
+            label, output, (stdout[-1500:] + stderr[-1500:]).strip() or "(no output captured)",
         )
         return None
     return output
