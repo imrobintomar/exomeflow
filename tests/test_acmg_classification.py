@@ -105,11 +105,15 @@ def test_merge_acmg_uses_hash_chr_and_deduplicates_transcript_rows(tmp_path: Pat
     """
     Regression test: found live against a real 937-variant somatic run —
     InterVar's own output has one row per overlapping transcript/gene per
-    variant (standard ANNOVAR gene-based annotation behavior), and its
-    first column is "#Chr" not "Chr". Matching on the bare "Chr" name
-    silently dropped chromosome from the join key, and merging without
-    deduplicating first multiplied every affected variant's row 1:N
-    instead of 1:1 — 937 real variants became 1261 output rows.
+    variant (standard ANNOVAR gene-based annotation behavior), its first
+    column is "#Chr" not "Chr", and its Chr values are bare numbers ("1",
+    "2", ...) while the main annotated table uses UCSC-style "chr"-prefixed
+    values ("chr1", "chr2", ...). Getting any one of these three wrong
+    either drops chromosome from the join key entirely, or makes the join
+    match almost nothing (observed live: only 4 of 937 real variants
+    matched, all coincidentally-unprefixed HLA allele contigs) — and
+    merging without deduplicating first multiplies rows 1:N instead of 1:1
+    (937 real variants became 1261 output rows in the same live run).
     """
     intervar_table = tmp_path / "out.hg38_multianno.txt.intervar"
     intervar_table.write_text(
@@ -121,8 +125,8 @@ def test_merge_acmg_uses_hash_chr_and_deduplicates_transcript_rows(tmp_path: Pat
     enriched = tmp_path / "s1.annovar.hpo.txt"
     enriched.write_text(
         "Chr\tStart\tEnd\tRef\tAlt\n"
-        "1\t100\t100\tA\tG\n"
-        "2\t100\t100\tA\tG\n"
+        "chr1\t100\t100\tA\tG\n"
+        "chr2\t100\t100\tA\tG\n"
     )
 
     assert mod._merge_acmg("s1", intervar_table, enriched) is True
@@ -130,8 +134,9 @@ def test_merge_acmg_uses_hash_chr_and_deduplicates_transcript_rows(tmp_path: Pat
     lines = enriched.read_text().splitlines()
     assert len(lines) == 3  # header + exactly 2 variant rows, not 3
     header = lines[0].split("\t")
-    chr1_row = next(r for r in lines[1:] if r.split("\t")[header.index("Chr")] == "1")
-    chr2_row = next(r for r in lines[1:] if r.split("\t")[header.index("Chr")] == "2")
+    assert "_chr_norm" not in header  # internal join key must not leak into output
+    chr1_row = next(r for r in lines[1:] if r.split("\t")[header.index("Chr")] == "chr1")
+    chr2_row = next(r for r in lines[1:] if r.split("\t")[header.index("Chr")] == "chr2")
     assert chr1_row.split("\t")[header.index("ACMG_classification")] == "Benign"
     assert chr2_row.split("\t")[header.index("ACMG_classification")] == "Pathogenic"
 

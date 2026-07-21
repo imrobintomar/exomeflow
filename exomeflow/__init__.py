@@ -4,7 +4,7 @@ ExomeFlow — Whole Exome Sequencing analysis pipeline.
 Author: Robin Kumar, AIIMS New Delhi
 """
 
-__version__ = "2.2.14"
+__version__ = "2.2.15"
 __author__ = "Robin Kumar"
 __email__ = "itsrobintomar@gmail.com"
 

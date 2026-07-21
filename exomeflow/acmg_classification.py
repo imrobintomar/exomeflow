@@ -288,11 +288,27 @@ def _merge_acmg(label: str, intervar_table: Path, enriched_txt: Path) -> bool:
 
     table = pd.read_csv(enriched_txt, sep="\t", dtype=str)
     if key_cols and all(c in table.columns for c in key_cols):
-        table = table.merge(
-            intervar[key_cols + ["ACMG_classification", "ACMG_evidence"]],
-            on=key_cols, how="left",
-        )
-        table.to_csv(enriched_txt, sep="\t", index=False)
+        left = table.copy()
+        right = intervar[key_cols + ["ACMG_classification", "ACMG_evidence"]].copy()
+        merge_on = list(key_cols)
+        if "Chr" in key_cols:
+            # Found live: InterVar's own Chr values are bare numbers
+            # ("1", "2", ..., "X") while the main annotated table uses
+            # UCSC-style "chr"-prefixed values ("chr1", "chr2", ...).
+            # Merging on the literal value (as introduced by the #Chr fix
+            # above) matched almost nothing — of 937 real variants, only
+            # 4 matched, and those were HLA allele contigs that happen to
+            # already lack a "chr" prefix in both tools' output. Normalize
+            # both sides for the join only; the displayed Chr value in the
+            # output stays exactly as the main table had it.
+            left["_chr_norm"] = left["Chr"].str.replace(r"(?i)^chr", "", regex=True)
+            right["_chr_norm"] = right["Chr"].str.replace(r"(?i)^chr", "", regex=True)
+            right = right.drop(columns=["Chr"])
+            merge_on = ["_chr_norm" if c == "Chr" else c for c in merge_on]
+        merged = left.merge(right, on=merge_on, how="left")
+        if "_chr_norm" in merged.columns:
+            merged = merged.drop(columns=["_chr_norm"])
+        merged.to_csv(enriched_txt, sep="\t", index=False)
         logger.success("[%s] ACMG classification merged into %s", label, enriched_txt)
         return True
     logger.warning("[%s] Missing join keys — skipping ACMG merge.", label)

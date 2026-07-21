@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.2.15
+
+Found live immediately after shipping 2.2.14's `#Chr` fix, while verifying
+its output against a real run: the fix introduced a strict chromosome
+match that broke almost everything it was meant to fix.
+
+### Fixed
+
+- **The ACMG merge matched almost no variants.** InterVar's own Chr values
+  are bare numbers (`1`, `2`, ..., `X`), while the main annotated table
+  uses UCSC-style `chr`-prefixed values (`chr1`, `chr2`, ...). 2.2.14's fix
+  correctly added Chr to the join key but compared the literal values —
+  of 937 real variants in a live run, only 4 matched, and those were HLA
+  allele contigs that happen to already lack a `chr` prefix in both tools'
+  output; every standard chromosome silently got `NaN` for
+  `ACMG_classification`/`ACMG_evidence`. The merge now normalizes both
+  sides' Chr (stripping a leading `chr`, case-insensitive) for the join
+  only — the displayed Chr value in the output is unaffected. Verified
+  against the same live run: 937/937 variants now receive a real
+  classification.
+
 ## 2.2.14
 
 Found live: after 2.2.13's diagnostics fix let InterVar run to completion,
