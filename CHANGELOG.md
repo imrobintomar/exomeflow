@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.2.14
+
+Found live: after 2.2.13's diagnostics fix let InterVar run to completion,
+the merged ACMG output was quietly wrong — every row's classification
+showed the literal string "InterVar:" instead of the real call, and 937
+real variants became 1261 rows in the output table.
+
+### Fixed
+
+- **`ACMG_classification` parsing was broken.** InterVar's raw cell value
+  is `" InterVar: <classification words> PVS1=... PS=[...] ..."` — the
+  label "InterVar:" is inside the value, not just the column name. A
+  first-whitespace split grabbed that literal label as the classification
+  and left the real (often multi-word, e.g. "Likely benign") text stuck
+  inside `ACMG_evidence` instead. Now parsed with a regex anchored on the
+  `PVS1=` evidence-block marker, so multi-word classifications extract
+  correctly.
+- **The merge silently dropped chromosome from its join key.** InterVar's
+  own first column is `#Chr` (leading `#`), not `Chr` like the main
+  annotated table — the old code's exact-match check against `"Chr"`
+  never matched it, so the join ran on `Start/End/Ref/Alt` alone.
+- **937 real variants became 1261 rows in the merged output.** InterVar
+  emits one row per overlapping transcript/gene for the same variant
+  (standard ANNOVAR gene-based annotation behavior for multi-isoform
+  genes) — its classification is identical across those duplicate rows,
+  but merging without deduplicating first multiplied them into the final
+  table 1:N instead of 1:1. `_merge_acmg` now deduplicates InterVar's side
+  on the join key before merging.
+
 ## 2.2.13
 
 Found live: after 2.2.12 fixed InterVar's slow database re-download,

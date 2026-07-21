@@ -249,12 +249,42 @@ def _merge_acmg(label: str, intervar_table: Path, enriched_txt: Path) -> bool:
             label, intervar_table,
         )
         return False
-    key_cols = [c for c in ("Chr", "Start", "End", "Ref", "Alt") if c in header_cols]
 
-    intervar = pd.read_csv(intervar_table, sep="\t", dtype=str, usecols=key_cols + [col])
-    parsed = intervar[col].fillna("").str.split(n=1, expand=True)
-    intervar["ACMG_classification"] = parsed[0] if 0 in parsed else ""
-    intervar["ACMG_evidence"] = parsed[1] if 1 in parsed else ""
+    # InterVar's own first column is literally "#Chr" (leading '#'), not
+    # "Chr" like the main enriched table and every other column here.
+    # Found live: matching on the bare "Chr" name silently dropped
+    # chromosome out of the merge join key entirely.
+    chr_col = next((c for c in header_cols if c.lstrip("#") == "Chr"), None)
+    key_cols = [c for c in ("Start", "End", "Ref", "Alt") if c in header_cols]
+    read_cols = key_cols + [col] + ([chr_col] if chr_col else [])
+
+    intervar = pd.read_csv(intervar_table, sep="\t", dtype=str, usecols=read_cols)
+    if chr_col:
+        intervar = intervar.rename(columns={chr_col: "Chr"})
+        key_cols = ["Chr"] + key_cols
+
+    # Found live: InterVar's raw value is
+    # " InterVar: <classification words> PVS1=... PS=[...] ...". Splitting
+    # on the first whitespace (the old approach) grabbed the literal label
+    # "InterVar:" as the classification and left the real (often
+    # multi-word, e.g. "Likely benign") text stuck inside "evidence"
+    # instead — every row's ACMG_classification was the same useless
+    # literal string "InterVar:".
+    extracted = intervar[col].fillna("").str.extract(
+        r"InterVar:\s*(?P<classification>.*?)\s*(?P<evidence>PVS1=.*)"
+    )
+    intervar["ACMG_classification"] = extracted["classification"].str.strip()
+    intervar["ACMG_evidence"] = extracted["evidence"].str.strip()
+
+    # Found live: InterVar emits one row per overlapping transcript/gene
+    # for the same variant (standard ANNOVAR gene-based annotation
+    # behavior for multi-isoform genes) — its classification is identical
+    # across those duplicate rows for a given variant (verified against a
+    # real run), but merging without deduplicating first multiplies rows
+    # in the output 1:N instead of 1:1 (observed live: 937 real variants
+    # became 1261 output rows).
+    if key_cols:
+        intervar = intervar.drop_duplicates(subset=key_cols, keep="first")
 
     table = pd.read_csv(enriched_txt, sep="\t", dtype=str)
     if key_cols and all(c in table.columns for c in key_cols):

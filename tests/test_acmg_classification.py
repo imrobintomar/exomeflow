@@ -49,20 +49,35 @@ def test_run_intervar_tool_shares_annovar_db_and_passes_intervardb_flag(tmp_path
     assert cmd[cmd.index("-t") + 1] == str(intervar_bin / "intervardb")
 
 
+# Real InterVar output, confirmed live against an actual run: the header's
+# first column is "#Chr" (leading '#', unlike the main table's bare "Chr"),
+# and the classification column's raw value is
+# " InterVar: <classification words> PVS1=... PS=[...] ..." — the label
+# "InterVar:" is IN the cell value, not just the header name.
+_REAL_INTERVAR_HEADER = (
+    "#Chr\tStart\tEnd\tRef\tAlt\t InterVar: InterVar and Evidence \n"
+)
+
+
 def test_merge_acmg_skips_when_enriched_file_missing(tmp_path: Path, capfd):
     intervar_table = tmp_path / "out.hg38_multianno.txt.intervar"
     intervar_table.write_text(
-        "Chr\tStart\tEnd\tRef\tAlt\t InterVar: InterVar and Evidence \n"
-        "1\t100\t100\tA\tG\tPathogenic PVS1=1 PS1=0\n"
+        _REAL_INTERVAR_HEADER + "1\t100\t100\tA\tG\t InterVar: Pathogenic PVS1=1 PS1=0 \n"
     )
     assert mod._merge_acmg("s1", intervar_table, tmp_path / "does_not_exist.hpo.txt") is False
 
 
 def test_merge_acmg_appends_classification_columns(tmp_path: Path):
+    """
+    Regression test: found live — a first-whitespace split used to grab the
+    literal label "InterVar:" as the classification, leaving the real
+    (often multi-word, e.g. "Likely benign") text stuck inside "evidence"
+    instead. Every row's ACMG_classification used to be the same useless
+    string "InterVar:".
+    """
     intervar_table = tmp_path / "out.hg38_multianno.txt.intervar"
     intervar_table.write_text(
-        "Chr\tStart\tEnd\tRef\tAlt\t InterVar: InterVar and Evidence \n"
-        "1\t100\t100\tA\tG\tPathogenic PVS1=1 PS1=0\n"
+        _REAL_INTERVAR_HEADER + "1\t100\t100\tA\tG\t InterVar: Likely pathogenic PVS1=1 PS1=0 \n"
     )
     enriched = tmp_path / "s1.annovar.hpo.txt"
     enriched.write_text("Chr\tStart\tEnd\tRef\tAlt\n1\t100\t100\tA\tG\n")
@@ -73,17 +88,52 @@ def test_merge_acmg_appends_classification_columns(tmp_path: Path):
     header = lines[0].split("\t")
     assert "ACMG_classification" in header and "ACMG_evidence" in header
     row = lines[1].split("\t")
-    assert row[header.index("ACMG_classification")] == "Pathogenic"
+    assert row[header.index("ACMG_classification")] == "Likely pathogenic"
     assert row[header.index("ACMG_evidence")] == "PVS1=1 PS1=0"
 
 
 def test_merge_acmg_returns_false_when_classification_column_not_found(tmp_path: Path):
     intervar_table = tmp_path / "out.hg38_multianno.txt.intervar"
-    intervar_table.write_text("Chr\tStart\tEnd\tRef\tAlt\tSomeOtherColumn\n1\t100\t100\tA\tG\tx\n")
+    intervar_table.write_text("#Chr\tStart\tEnd\tRef\tAlt\tSomeOtherColumn\n1\t100\t100\tA\tG\tx\n")
     enriched = tmp_path / "s1.annovar.hpo.txt"
     enriched.write_text("Chr\tStart\tEnd\tRef\tAlt\n1\t100\t100\tA\tG\n")
 
     assert mod._merge_acmg("s1", intervar_table, enriched) is False
+
+
+def test_merge_acmg_uses_hash_chr_and_deduplicates_transcript_rows(tmp_path: Path):
+    """
+    Regression test: found live against a real 937-variant somatic run —
+    InterVar's own output has one row per overlapping transcript/gene per
+    variant (standard ANNOVAR gene-based annotation behavior), and its
+    first column is "#Chr" not "Chr". Matching on the bare "Chr" name
+    silently dropped chromosome from the join key, and merging without
+    deduplicating first multiplied every affected variant's row 1:N
+    instead of 1:1 — 937 real variants became 1261 output rows.
+    """
+    intervar_table = tmp_path / "out.hg38_multianno.txt.intervar"
+    intervar_table.write_text(
+        _REAL_INTERVAR_HEADER
+        + "1\t100\t100\tA\tG\t InterVar: Benign PVS1=0 PS1=0 \n"
+        + "1\t100\t100\tA\tG\t InterVar: Benign PVS1=0 PS1=0 \n"  # 2nd transcript, same variant
+        + "2\t100\t100\tA\tG\t InterVar: Pathogenic PVS1=1 PS1=1 \n"  # different chromosome, same pos
+    )
+    enriched = tmp_path / "s1.annovar.hpo.txt"
+    enriched.write_text(
+        "Chr\tStart\tEnd\tRef\tAlt\n"
+        "1\t100\t100\tA\tG\n"
+        "2\t100\t100\tA\tG\n"
+    )
+
+    assert mod._merge_acmg("s1", intervar_table, enriched) is True
+
+    lines = enriched.read_text().splitlines()
+    assert len(lines) == 3  # header + exactly 2 variant rows, not 3
+    header = lines[0].split("\t")
+    chr1_row = next(r for r in lines[1:] if r.split("\t")[header.index("Chr")] == "1")
+    chr2_row = next(r for r in lines[1:] if r.split("\t")[header.index("Chr")] == "2")
+    assert chr1_row.split("\t")[header.index("ACMG_classification")] == "Benign"
+    assert chr2_row.split("\t")[header.index("ACMG_classification")] == "Pathogenic"
 
 
 def test_run_intervar_does_not_checkpoint_when_merge_fails(tmp_path: Path, cfg, monkeypatch):
